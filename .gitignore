@@ -1,0 +1,6 @@
+**/.env
+**/.env.*
+!**/.env.example
+api/node_modules/
+api/.classtrack-server.*.log
+npm-debug.log*

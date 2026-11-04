@@ -1,0 +1,2 @@
+ALTER TABLE conduct_categories
+  ADD COLUMN points INTEGER NOT NULL DEFAULT 1 CHECK (points BETWEEN 1 AND 100);

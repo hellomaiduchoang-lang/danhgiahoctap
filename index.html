@@ -1,0 +1,3388 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f7fb" />
+    <title>ClassTrack — Quản lý rèn luyện học sinh</title>
+    <style>
+      :root {
+        --ink: #17233c;
+        --muted: #8290a7;
+        --line: #e9edf4;
+        --paper: #ffffff;
+        --canvas: #f5f7fb;
+        --navy: #17233c;
+        --blue: #5369e8;
+        --blue-soft: #eef0ff;
+        --green: #1da77a;
+        --green-soft: #e7f7f1;
+        --red: #e56c70;
+        --red-soft: #fff0f0;
+        --amber: #e4a642;
+        --amber-soft: #fff7e9;
+        --shadow: 0 8px 28px rgba(24, 42, 78, 0.055);
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        color: var(--ink);
+        background: var(--canvas);
+      }
+
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --ink: #e8edf7;
+        --muted: #9caac0;
+        --line: #303a4c;
+        --paper: #1d2635;
+        --canvas: #131a25;
+        --navy: #e8edf7;
+        --blue-soft: #2a3457;
+        --green-soft: #183c34;
+        --red-soft: #452c35;
+        --amber-soft: #453923;
+        --shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+      }
+
+      :root[data-theme="dark"] body { color: var(--ink); background: var(--canvas); }
+      :root[data-theme="dark"] .sidebar,
+      :root[data-theme="dark"] .topbar,
+      :root[data-theme="dark"] .auth-card,
+      :root[data-theme="dark"] .panel,
+      :root[data-theme="dark"] .stat-card,
+      :root[data-theme="dark"] .student-card,
+      :root[data-theme="dark"] .modal,
+      :root[data-theme="dark"] .class-switcher,
+      :root[data-theme="dark"] .filter-select,
+      :root[data-theme="dark"] .search input,
+      :root[data-theme="dark"] .field input,
+      :root[data-theme="dark"] .field textarea,
+      :root[data-theme="dark"] .field select { background-color: var(--paper); color: var(--ink); border-color: var(--line); }
+      :root[data-theme="dark"] .nav-item { color: #aab6c9; }
+      :root[data-theme="dark"] .nav-item:hover,
+      :root[data-theme="dark"] .table-wrap th,
+      :root[data-theme="dark"] tr:hover td { background: #252f40; color: var(--muted); }
+      :root[data-theme="dark"] .nav-item.active { color: #b9c5ff; }
+      :root[data-theme="dark"] td { color: #c2cbd9; border-color: var(--line); }
+      :root[data-theme="dark"] .event-title,
+      :root[data-theme="dark"] .field label { color: var(--ink); }
+      :root[data-theme="dark"] .school-card,
+      :root[data-theme="dark"] .profile-stat { background: #252f40; border-color: var(--line); }
+      :root[data-theme="dark"] input::placeholder,
+      :root[data-theme="dark"] textarea::placeholder { color: #8290a7; }
+      :root[data-theme="dark"] .quick-panel,
+      :root[data-theme="dark"] .report-note,
+      :root[data-theme="dark"] .profile-stat { background: #252f40; border-color: var(--line); color: var(--muted); }
+      :root[data-theme="dark"] .button:not(.primary) { background: #252f40; color: var(--ink); border-color: var(--line); }
+
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      body { margin: 0; min-width: 320px; background: var(--canvas); }
+      button, input, select, textarea { font: inherit; }
+      button { cursor: pointer; }
+      a { color: inherit; text-decoration: none; }
+
+      .app { display: flex; min-height: 100vh; }
+
+      .sidebar {
+        width: 248px;
+        flex: 0 0 248px;
+        background: #fff;
+        border-right: 1px solid var(--line);
+        padding: 25px 16px;
+        display: flex;
+        flex-direction: column;
+        z-index: 5;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 0 10px;
+        margin-bottom: 35px;
+      }
+
+      .brand-mark {
+        width: 37px;
+        height: 37px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        color: white;
+        background: var(--blue);
+        box-shadow: 0 5px 12px rgba(83, 105, 232, 0.3);
+      }
+
+      .brand-mark svg { width: 21px; height: 21px; }
+
+      .brand-name { font-size: 18px; font-weight: 750; letter-spacing: -0.5px; }
+      .brand-name span { color: var(--blue); }
+
+      .nav-label {
+        color: #a1aabd;
+        font-size: 10px;
+        font-weight: 750;
+        letter-spacing: 1.25px;
+        padding: 0 12px;
+        margin: 10px 0 9px;
+      }
+
+      .nav { display: grid; gap: 5px; }
+
+      .nav-item {
+        border: 0;
+        background: transparent;
+        color: #74819a;
+        border-radius: 9px;
+        width: 100%;
+        padding: 11px 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-align: left;
+        font-size: 13px;
+        font-weight: 600;
+        transition: 0.18s;
+      }
+
+      .nav-item:hover { background: #f7f8fc; color: var(--ink); }
+      .nav-item.active { background: var(--blue-soft); color: var(--blue); }
+      .nav-item svg { width: 17px; height: 17px; stroke-width: 1.8; flex: none; }
+      .nav-count {
+        margin-left: auto;
+        font-size: 11px;
+        border-radius: 20px;
+        padding: 2px 7px;
+        background: var(--amber-soft);
+        color: #b68127;
+      }
+
+      .side-bottom { margin-top: auto; }
+
+      .school-card {
+        margin: 15px 4px 19px;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .school-icon {
+        width: 33px;
+        height: 33px;
+        background: #f0f3ff;
+        color: var(--blue);
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+      }
+
+      .school-icon svg { width: 17px; }
+
+      .school-year { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+      .user {
+        padding: 14px 9px 0;
+        border-top: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .avatar {
+        background: #f8d8c6;
+        color: #975b3b;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        font-weight: 700;
+        width: 35px;
+        height: 35px;
+        font-size: 12px;
+        flex: none;
+      }
+
+      .user-name { font-size: 11px; font-weight: 700; }
+      .user-role { color: var(--muted); font-size: 10px; margin-top: 3px; }
+
+      .main { flex: 1; min-width: 0; }
+
+      .topbar {
+        height: 75px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 38px;
+      }
+
+      .crumb { color: var(--muted); font-size: 12px; }
+      .crumb strong { color: var(--ink); font-weight: 650; }
+
+      .top-actions { display: flex; gap: 17px; align-items: center; }
+
+      .icon-button {
+        width: 35px;
+        height: 35px;
+        display: grid;
+        place-items: center;
+        position: relative;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: #6f7c93;
+        border-radius: 9px;
+      }
+
+      .icon-button svg { width: 17px; height: 17px; }
+
+      .notification-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--red);
+        border: 1px solid white;
+        border-radius: 50%;
+        position: absolute;
+        top: 7px;
+        right: 7px;
+      }
+
+      .top-user { display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 650; }
+      .top-user .avatar { width: 32px; height: 32px; }
+      .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+      .profile-layout { display: grid; grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr); gap: 16px; max-width: 900px; }
+      .profile-avatar-preview { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; background: var(--line); color: var(--muted); font-size: 28px; font-weight: 750; }
+      .profile-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+      @media (max-width: 700px) { .profile-layout { grid-template-columns: 1fr; } }
+
+      .content { max-width: 1460px; margin: 0 auto; padding: 31px 38px 45px; }
+
+      .page-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+        margin-bottom: 25px;
+      }
+
+      h1 { margin: 0; font-size: 23px; letter-spacing: -0.6px; }
+      .subtitle { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+      .heading-actions { display: flex; gap: 9px; }
+
+      .button {
+        border: 1px solid var(--line);
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: #fff;
+        color: #546078;
+        font-size: 11px;
+        font-weight: 650;
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        transition: 0.18s;
+      }
+
+      .button:hover { border-color: #cbd2e0; transform: translateY(-1px); }
+      .button svg { width: 15px; height: 15px; }
+      .button.primary {
+        color: #fff;
+        border-color: var(--blue);
+        background: var(--blue);
+        box-shadow: 0 4px 10px rgba(83, 105, 232, 0.2);
+      }
+
+      .button.primary:hover { background: #455bda; }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .stat-card {
+        background: var(--paper);
+        padding: 18px 19px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        box-shadow: var(--shadow);
+        min-height: 113px;
+      }
+
+      .stat-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: #76839a;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .stat-icon {
+        width: 29px;
+        height: 29px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+      }
+
+      .stat-icon svg { width: 15px; height: 15px; }
+      .stat-icon.blue { color: var(--blue); background: var(--blue-soft); }
+      .stat-icon.green { color: var(--green); background: var(--green-soft); }
+      .stat-icon.red { color: var(--red); background: var(--red-soft); }
+      .stat-icon.amber { color: var(--amber); background: var(--amber-soft); }
+
+      .stat-number {
+        margin-top: 9px;
+        font-size: 24px;
+        font-weight: 750;
+        letter-spacing: -0.7px;
+      }
+
+      .stat-caption {
+        margin-top: 4px;
+        color: #9aa5b6;
+        font-size: 10px;
+      }
+
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.7fr) minmax(270px, 0.9fr);
+        gap: 17px;
+      }
+
+      .panel {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        box-shadow: var(--shadow);
+        min-width: 0;
+      }
+
+      .panel-head {
+        min-height: 60px;
+        padding: 15px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #f0f2f6;
+        gap: 12px;
+      }
+
+      .panel-title { font-size: 13px; font-weight: 700; }
+      .panel-subtitle { color: var(--muted); font-size: 10px; margin-top: 4px; }
+
+      .text-link {
+        color: var(--blue);
+        font-size: 10px;
+        border: 0;
+        background: transparent;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .select-small {
+        border: 1px solid var(--line);
+        background: white;
+        padding: 7px 9px;
+        color: #657189;
+        border-radius: 7px;
+        font-size: 10px;
+      }
+
+      .table-wrap { overflow-x: auto; }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      th {
+        color: #9ba6b6;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.55px;
+        text-transform: uppercase;
+        padding: 12px 16px;
+        background: #fcfcfd;
+      }
+
+      td {
+        padding: 12px 16px;
+        border-top: 1px solid #f0f2f5;
+        font-size: 10px;
+        color: #58667e;
+      }
+
+      tr:hover td { background: #fcfcff; }
+
+      .student-cell {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .student-cell .avatar { width: 29px; height: 29px; font-size: 9px; }
+      .student-name { color: var(--ink); font-weight: 650; font-size: 10px; }
+      .student-class { color: #9aa5b6; font-size: 9px; margin-top: 3px; }
+
+      .event-title {
+        color: #33415a;
+        font-weight: 600;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .points { font-weight: 700; }
+      .points.positive { color: var(--green); }
+      .points.negative { color: var(--red); }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 7px;
+        border-radius: 20px;
+        font-size: 9px;
+        font-weight: 650;
+        border: none;
+      }
+
+      .badge.positive { color: #16875f; background: var(--green-soft); }
+      .badge.negative { color: #cd575c; background: var(--red-soft); }
+      .badge.pending { color: #b27a1f; background: var(--amber-soft); }
+      .badge.verified { color: #16875f; background: var(--green-soft); }
+
+      .empty-state { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 11px; }
+
+      .trend-panel { padding-bottom: 15px; }
+
+      .chart {
+        padding: 21px 17px 10px;
+        height: 188px;
+        display: flex;
+        align-items: flex-end;
+        gap: 15px;
+        position: relative;
+      }
+
+      .chart::before, .chart::after {
+        content: "";
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        border-top: 1px dashed #e9edf3;
+      }
+
+      .chart::before { top: 50px; }
+      .chart::after { top: 102px; }
+
+      .chart-col {
+        flex: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        z-index: 1;
+      }
+
+      .bar-pair {
+        width: 100%;
+        height: 135px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 4px;
+      }
+
+      .bar { width: 11px; border-radius: 5px 5px 2px 2px; min-height: 4px; }
+      .bar.plus { background: #7bcdb0; }
+      .bar.minus { background: #f0a3a4; }
+
+      .chart-label { font-size: 9px; color: #929eb0; }
+
+      .legend {
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        font-size: 9px;
+        color: #8793a7;
+        margin-top: 8px;
+      }
+
+      .legend span { display: inline-flex; align-items: center; gap: 5px; }
+      .legend i {
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background: #7bcdb0;
+        display: inline-block;
+      }
+      .legend .minus-dot { background: #f0a3a4; }
+
+      .quick-panel {
+        padding: 17px;
+        margin-top: 16px;
+        background: linear-gradient(115deg, #f1f3ff, #f8f9ff);
+        border: 1px solid #e9ebfc;
+        border-radius: 11px;
+      }
+
+      .quick-panel-title { font-size: 12px; font-weight: 700; }
+      .quick-panel p {
+        color: #7985a0;
+        line-height: 1.6;
+        font-size: 10px;
+        margin: 6px 0 13px;
+      }
+      .quick-panel .button { background: white; }
+
+      .filters {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex-wrap: wrap;
+        padding: 13px 17px;
+        border-bottom: 1px solid #f0f2f6;
+      }
+
+      .search { position: relative; flex: 1; min-width: 170px; }
+      .search svg {
+        position: absolute;
+        left: 10px;
+        top: 9px;
+        width: 14px;
+        height: 14px;
+        color: #9aa5b6;
+      }
+      .search input {
+        width: 100%;
+        padding: 8px 10px 8px 31px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        outline: none;
+        font-size: 10px;
+        color: var(--ink);
+      }
+
+      .search input:focus, select:focus, textarea:focus, input:focus {
+        border-color: #9ba8f4;
+        outline: 2px solid rgba(83, 105, 232, 0.1);
+      }
+
+      .filter-select {
+        border: 1px solid var(--line);
+        color: #68758b;
+        background: white;
+        border-radius: 7px;
+        font-size: 10px;
+        padding: 8px 10px;
+      }
+
+      .page-section { display: none; }
+      .page-section.active { display: block; }
+
+      .student-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .student-card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: white;
+        padding: 16px;
+        box-shadow: var(--shadow);
+        cursor: pointer;
+        transition: 0.18s;
+      }
+
+      .student-card:hover { transform: translateY(-2px); border-color: #d4dafa; }
+      .student-card.group-award-target { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+      .student-card-head { display: flex; align-items: center; gap: 10px; }
+      .student-card .avatar { width: 38px; height: 38px; }
+      .student-card .student-name { font-size: 12px; }
+      .student-card .student-class { font-size: 10px; }
+      .student-balance {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 17px;
+        padding-top: 13px;
+        border-top: 1px solid #f0f2f5;
+      }
+
+      .balance-label { font-size: 9px; color: #9aa5b6; }
+      .balance-value {
+        margin-top: 4px;
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .report-summary {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 13px;
+        margin-bottom: 17px;
+      }
+
+      .report-note {
+        background: #f6f8ff;
+        border: 1px solid #ebefff;
+        border-radius: 9px;
+        padding: 15px;
+        color: #727f99;
+        font-size: 10px;
+        line-height: 1.6;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        background: rgba(22, 33, 57, 0.43);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+      }
+
+      .modal-backdrop.open { display: flex; }
+
+      .modal {
+        width: 100%;
+        max-width: 550px;
+        max-height: 93vh;
+        overflow-y: auto;
+        background: white;
+        border-radius: 13px;
+        box-shadow: 0 24px 80px rgba(20, 33, 67, 0.24);
+      }
+
+      .modal-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 19px 21px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .modal-head h2 { margin: 0; font-size: 16px; }
+      .modal-head p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .close-button {
+        border: 0;
+        background: transparent;
+        color: #8290a7;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .award-dropzone {
+        margin: 18px 20px;
+        padding: 18px;
+        border: 2px dashed var(--line);
+        border-radius: 12px;
+        text-align: center;
+        background: var(--canvas);
+        transition: 0.15s;
+      }
+      .award-dropzone.drag-over { border-color: var(--blue); background: var(--blue-soft); }
+      .award-dropzone strong { display: block; color: var(--ink); font-size: 13px; }
+      .award-category-list { display: grid; gap: 9px; padding: 0 20px 18px; }
+      .award-category-chip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 12px 14px;
+        background: var(--paper);
+        color: var(--ink);
+        text-align: left;
+        cursor: grab;
+      }
+      .award-category-chip:active { cursor: grabbing; }
+      .award-category-chip:hover { border-color: var(--blue); }
+      .award-category-chip small { display: block; margin-top: 3px; color: var(--muted); }
+      .group-member-picker { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--paper); }
+      .group-member-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+      .group-member-list { display: grid; gap: 4px; max-height: 240px; overflow: auto; }
+      .group-member-option { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 6px; cursor: pointer; }
+      .group-member-option:hover { background: var(--canvas); }
+      .group-member-option input { accent-color: var(--blue); }
+      .group-member-option small { margin-left: auto; color: var(--muted); }
+
+      .form { padding: 18px 21px 21px; }
+      .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 13px;
+      }
+      .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 13px; }
+      .field.full { grid-column: 1 / -1; }
+      .field label { font-size: 10px; color: #536078; font-weight: 700; }
+      .field input, .field select, .field textarea {
+        border: 1px solid #e4e8ef;
+        border-radius: 7px;
+        padding: 10px;
+        outline: none;
+        font-size: 11px;
+        color: var(--ink);
+        background: white;
+      }
+      .field textarea { resize: vertical; min-height: 72px; }
+      .field input[type="file"] { padding: 8px; }
+      .form-help { color: #9aa5b6; font-size: 9px; margin-top: -2px; }
+      .form-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding-top: 4px;
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 22px;
+        right: 22px;
+        z-index: 30;
+        background: #183b32;
+        color: white;
+        padding: 12px 16px;
+        border-radius: 9px;
+        font-size: 11px;
+        box-shadow: 0 8px 25px rgba(23, 35, 60, 0.2);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: 0.2s;
+        pointer-events: none;
+      }
+      .toast.show { opacity: 1; transform: translateY(0); }
+
+      .auth-screen {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: radial-gradient(circle at 15% 15%, #e8ebff, transparent 35%), var(--canvas);
+      }
+
+      .auth-card {
+        width: min(100%, 420px);
+        padding: 30px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: white;
+        box-shadow: var(--shadow);
+      }
+
+      .auth-card .brand { margin: 0 0 25px; padding: 0; }
+      .auth-card h1 { font-size: 22px; }
+      .auth-card .subtitle { line-height: 1.6; margin-bottom: 22px; }
+      .auth-card .field { margin-bottom: 15px; }
+      .auth-card .field label { font-size: 12px; }
+      .auth-card .field input { font-size: 13px; padding: 12px; }
+      .auth-error { color: #b74348; font-size: 12px; line-height: 1.5; margin: 0 0 14px; }
+      .auth-footnote { color: var(--muted); font-size: 10px; line-height: 1.6; margin: 15px 0 0; }
+      .class-switcher {
+        max-width: 180px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        color: #546078;
+        background: white;
+        font-size: 11px;
+      }
+
+      .role-request-list { display: grid; gap: 10px; padding: 16px; }
+      .role-request-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 15px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+      }
+      .role-request-reason { color: var(--muted); font-size: 10px; margin-top: 5px; }
+      .role-request-actions { display: flex; gap: 7px; }
+
+      .profile-summary {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 21px;
+      }
+
+      .profile-summary .avatar { width: 52px; height: 52px; font-size: 16px; }
+      .profile-name { font-weight: 750; font-size: 16px; }
+      .profile-meta { color: var(--muted); font-size: 10px; margin-top: 5px; }
+      .profile-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 9px;
+        padding: 0 21px 19px;
+      }
+      .profile-stat {
+        background: #f8f9fc;
+        padding: 11px;
+        border-radius: 8px;
+      }
+      .profile-stat span { display: block; color: var(--muted); font-size: 9px; }
+      .profile-stat strong { display: block; font-size: 15px; margin-top: 5px; }
+
+      @media (max-width: 1050px) {
+        .sidebar { width: 210px; flex-basis: 210px; }
+        .content { padding-left: 24px; padding-right: 24px; }
+        .topbar { padding: 0 24px; }
+        .cards { grid-template-columns: repeat(2, 1fr); }
+        .student-grid { grid-template-columns: repeat(2, 1fr); }
+      }
+
+      @media (max-width: 750px) {
+        .sidebar {
+          width: 62px;
+          flex-basis: 62px;
+          padding: 18px 8px;
+          align-items: center;
+        }
+
+        .brand { padding: 0; margin-bottom: 29px; }
+        .brand-name, .nav-label, .nav-item span, .nav-count, .school-card, .user > div:not(.avatar) { display: none; }
+        .nav { width: 100%; }
+        .nav-item { justify-content: center; padding: 12px 0; }
+        .nav-item svg { width: 19px; height: 19px; }
+        .side-bottom { width: 100%; }
+        .user { justify-content: center; padding: 13px 0 0; }
+        .topbar { height: 62px; padding: 0 15px; }
+        .top-user > span { display: none; }
+        .top-actions { gap: 9px; }
+        .content { padding: 24px 15px 35px; }
+        .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+        .page-heading { align-items: flex-start; }
+        .heading-actions .button:not(.primary) { display: none; }
+        .heading-actions .button { padding: 9px 10px; }
+        .student-grid { grid-template-columns: 1fr 1fr; }
+      }
+
+      @media (max-width: 480px) {
+        .cards { gap: 9px; }
+        .stat-card { padding: 13px; min-height: 103px; }
+        .stat-top { font-size: 9px; }
+        .stat-number { font-size: 21px; }
+        .stat-caption { font-size: 9px; }
+        h1 { font-size: 20px; }
+        .student-grid { grid-template-columns: 1fr; }
+        .form-grid { grid-template-columns: 1fr; gap: 0; }
+        .field.full { grid-column: auto; }
+        .report-summary { grid-template-columns: 1fr; }
+        .profile-stats { padding-left: 14px; padding-right: 14px; }
+        .filters { align-items: stretch; }
+        .filters .search { flex-basis: 100%; }
+        .filter-select { flex: 1; }
+        .topbar .crumb { font-size: 10px; max-width: 48px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .top-user { display: none; }
+        .icon-button { width: 30px; height: 30px; }
+        .class-switcher { width: 76px; max-width: 76px; padding: 7px 4px; font-size: 9px; }
+        #role-request-open { padding: 7px 5px; font-size: 9px; white-space: nowrap; }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="auth-screen" id="auth-screen">
+      <form class="auth-card" id="login-form">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/>
+              <path d="M4 5.5v16M8 7h8M8 11h8"/>
+            </svg>
+          </div>
+          <div class="brand-name">Class<span>Track</span></div>
+        </div>
+        <h1>Đăng nhập</h1>
+        <p class="subtitle">Đăng nhập để truy cập lớp học và dữ liệu rèn luyện được cấp quyền.</p>
+        <div class="field">
+          <label for="login-username">Tên đăng nhập</label>
+          <input id="login-username" type="text" autocomplete="username" maxlength="32" required />
+        </div>
+        <div class="field">
+          <label for="login-password">Mật khẩu</label>
+          <input id="login-password" type="password" autocomplete="current-password" maxlength="256" required />
+        </div>
+        <p class="auth-error" id="login-error" role="alert" hidden></p>
+        <button class="button primary" id="login-submit" type="submit" style="width: 100%; padding: 12px;">Đăng nhập</button>
+          <button class="button" type="button" id="auth-theme-toggle" style="width:100%; margin-top:10px;">Bật chế độ tối</button>
+        <p class="auth-footnote">Tài khoản được cấp bởi quản trị viên hoặc giáo viên chủ nhiệm.</p>
+      </form>
+    </section>
+
+    <div class="app" id="app-shell" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/>
+              <path d="M4 5.5v16M8 7h8M8 11h8"/>
+            </svg>
+          </div>
+          <div class="brand-name">Class<span>Track</span></div>
+        </div>
+
+        <div class="nav-label">TỔNG QUAN</div>
+        <nav class="nav" aria-label="Điều hướng chính">
+          <button class="nav-item active" data-page="dashboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="11" width="7" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg>
+            <span>Tổng quan</span>
+          </button>
+          <button class="nav-item" data-page="students">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-1.7A4.3 4.3 0 0 1 6.8 14h4.4a4.3 4.3 0 0 1 4.3 4.3V20M16 4.8a3.5 3.5 0 0 1 0 6.5m2.3 3.1a4.1 4.1 0 0 1 3.2 4V20"/></svg>
+            <span>Học sinh</span>
+          </button>
+          <button class="nav-item" data-page="incidents">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3 3.5 7.5v5c0 4.3 3.6 7.3 8.5 8.5 4.9-1.2 8.5-4.2 8.5-8.5v-5z"/><path d="m8.5 12 2.3 2.3 4.8-5"/></svg>
+            <span>Sự việc</span>
+            <span class="nav-count" id="pending-count">0</span>
+          </button>
+          <button class="nav-item" data-page="forum">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 5.5v15M8 8h8M8 11.5h8M8 15h5"/></svg>
+            <span>Diễn đàn lớp</span>
+          </button>
+          <button class="nav-item" data-page="reports">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19V5m0 14h17"/><path d="m7 15 4-4 3 2 6-7"/></svg>
+            <span>Báo cáo</span>
+          </button>
+          <button class="nav-item" data-page="points" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v8m0 0H4m8 0h8M6 7l-2 4 2 4m12-8 2 4-2 4M12 13v8"/><path d="M9 18h6"/></svg>
+            <span>Mức điểm</span>
+          </button>
+          <button class="nav-item" data-page="roles" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3 3.5 7.5v5c0 4.3 3.6 7.3 8.5 8.5 4.9-1.2 8.5-4.2 8.5-8.5v-5z"/><path d="m8.5 12 2.3 2.3 4.8-5"/></svg>
+            <span>Vai trò & quyền</span>
+          </button>
+        </nav>
+
+        <div class="nav-label" style="margin-top: 28px;">THIẾT LẬP</div>
+        <nav class="nav" aria-label="Thiết lập">
+          <button class="nav-item" id="class-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6M9 9h.01M15 9h.01M9 12h.01M15 12h.01"/></svg>
+            <span>Lớp 10A1</span>
+          </button>
+          <button class="nav-item" id="settings-button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.7 2.9-.2-.1a1.8 1.8 0 0 0-1.9.1l-.2.1h-3.3l-.1-.2a1.8 1.8 0 0 0-1.6-1l-.2.1-2.9-1.7.1-.2a1.8 1.8 0 0 0-.1-1.9l-.1-.2v-3.3l.2-.1a1.8 1.8 0 0 0 1-1.6l-.1-.2 1.7-2.9.2.1a1.8 1.8 0 0 0 1.9-.1l.2-.1h3.3l.1.2a1.8 1.8 0 0 0 1.6 1l.2-.1 2.9 1.7-.1.2a1.8 1.8 0 0 0 .1 1.9l.1.2v3.3z"/></svg>
+            <span>Cài đặt</span>
+          </button>
+        </nav>
+
+        <div class="side-bottom">
+          <div class="school-card">
+            <div class="school-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg>
+            </div>
+            <div>
+              <div class="school-year">Năm học 2025 – 2026</div>
+            </div>
+          </div>
+
+          <div class="user">
+            <div class="avatar">ML</div>
+            <div>
+              <div class="user-name" id="sidebar-user-name">ClassTrack</div>
+              <div class="user-role" id="sidebar-user-role"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="crumb">Lớp học <span style="padding: 0 7px; color: #c4cad5">/</span> <strong id="breadcrumb-title">Tổng quan</strong></div>
+          <div class="top-actions">
+            <select class="class-switcher" id="class-switcher" aria-label="Chọn lớp"></select>
+            <button class="button" id="role-request-open" hidden>Yêu cầu cấp quyền</button>
+            <button class="icon-button" aria-label="Thông báo" id="notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+              <i class="notification-dot"></i>
+            </button>
+            <button class="button" id="personal-page-open" type="button">Cá nhân</button>
+            <div class="top-user">
+              <div class="avatar">ML</div>
+              <span id="header-user-name">Tài khoản</span>
+            </div>
+            <button class="icon-button" id="logout-button" aria-label="Đăng xuất" title="Đăng xuất">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="content">
+          <section class="page-section" id="page-admin" hidden>
+            <div class="page-heading">
+              <div>
+                <h1>Quản trị tài khoản</h1>
+                <div class="subtitle">Tổng hợp số tài khoản, lớp học và tài khoản giáo viên.</div>
+              </div>
+            </div>
+            <div class="cards" id="admin-overview-panel">
+              <div class="stat-card"><div class="stat-top">Tổng số tài khoản</div><div class="stat-number" id="admin-account-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Số lớp học</div><div class="stat-number" id="admin-class-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tài khoản giáo viên</div><div class="stat-number" id="admin-teacher-count">—</div></div>
+            </div>
+            <div class="panel" id="admin-account-management" style="margin-top:16px;padding:18px;" hidden>
+              <div class="panel-title">Quản lý tài khoản</div>
+              <form id="admin-account-filter-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:end;margin:14px 0;">
+                <div class="field"><label for="admin-account-search">Tìm tên hoặc tên đăng nhập</label><input id="admin-account-search" maxlength="120" /></div>
+                <div class="field"><label for="admin-account-type">Loại tài khoản</label><select id="admin-account-type"><option value="">Tất cả</option><option value="student">Học sinh</option><option value="teacher">Giáo viên</option><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></div>
+                <div class="field"><label for="admin-account-status">Trạng thái</label><select id="admin-account-status"><option value="">Tất cả</option><option value="active">Đang hoạt động</option><option value="locked">Đã khóa</option></select></div>
+                <div class="field"><label for="admin-account-from">Tạo từ ngày</label><input id="admin-account-from" type="date" /></div>
+                <div class="field"><label for="admin-account-to">Đến ngày</label><input id="admin-account-to" type="date" /></div>
+                <button class="button primary" type="submit">Lọc tài khoản</button>
+              </form>
+              <div class="table-wrap"><table><thead><tr><th>Tài khoản</th><th>Loại</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead><tbody id="admin-account-rows"></tbody></table></div>
+              <p class="form-help" id="admin-account-result" aria-live="polite"></p>
+              <div id="admin-reset-result" class="panel" style="padding:14px;margin-top:12px;" hidden>
+                <div class="panel-title">Mật khẩu tạm — chỉ hiển thị lần này</div>
+                <p class="form-help">Chuyển mật khẩu tạm cho đúng chủ tài khoản qua kênh đã xác minh. Họ sẽ phải đổi mật khẩu khi đăng nhập.</p>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input id="admin-temporary-password" readonly style="max-width:320px;" /><button class="button" id="admin-copy-temporary-password" type="button">Sao chép</button></div>
+              </div>
+              <div id="admin-permissions-panel" class="panel" style="padding:14px;margin-top:12px;" hidden>
+                <div class="panel-title" id="admin-permissions-title">Quyền admin</div>
+                <form id="admin-permissions-form" class="form" style="margin-top:10px;">
+                  <label><input type="checkbox" value="accounts:manage" data-admin-permission /> Quản lý tài khoản, khóa và đặt lại mật khẩu</label>
+                  <label><input type="checkbox" value="teachers:manage" data-admin-permission /> Tạo tài khoản giáo viên</label>
+                  <label><input type="checkbox" value="admins:manage" data-admin-permission /> Tạo admin thường</label>
+                  <label><input type="checkbox" value="audit:view" data-admin-permission /> Xem nhật ký quản trị</label>
+                  <label><input type="checkbox" value="reports:view" data-admin-permission /> Xem thống kê hệ thống</label>
+                  <label><input type="checkbox" value="classes:manage" data-admin-permission /> Quản lý lớp học</label>
+                  <p class="form-help">Super Admin mới được cấp quyền này. Không thể tự thay đổi quyền của tài khoản đang đăng nhập.</p>
+                  <button class="button primary" type="submit">Lưu phân quyền</button>
+                </form>
+              </div>
+            </div>
+            <div class="panel" id="admin-audit-panel" style="margin-top:16px;padding:18px;" hidden>
+              <div class="panel-title">Nhật ký quản trị</div>
+              <div class="role-request-list" id="admin-audit-rows" style="padding-top:12px;"></div>
+            </div>
+            <div class="panel" id="admin-create-panel" style="margin-top:16px;padding:18px;">
+              <div class="panel-title">Rèn luyện toàn hệ thống</div>
+              <p class="form-help">Điểm cộng/trừ trong tháng hiện tại và số sự việc đang chờ xác minh của tất cả các lớp; không hiển thị danh sách hoặc hồ sơ học sinh.</p>
+              <div class="cards" style="margin-top:14px;">
+                <div class="stat-card"><div class="stat-top">Tổng điểm cộng</div><div class="stat-number" id="admin-positive-points">—</div></div>
+                <div class="stat-card"><div class="stat-top">Tổng điểm trừ</div><div class="stat-number" id="admin-negative-points">—</div></div>
+                <div class="stat-card"><div class="stat-top">Sự việc chờ xác minh</div><div class="stat-number" id="admin-pending-records">—</div></div>
+              </div>
+            </div>
+            <div class="panel" id="teacher-account-panel" style="margin-top:16px;padding:18px;">
+              <div class="panel-title">Tạo tài khoản giáo viên</div>
+              <form id="teacher-account-form" class="form" style="margin-top:12px;">
+                <div class="field"><label for="new-teacher-names">Danh sách giáo viên chủ nhiệm</label><textarea id="new-teacher-names" maxlength="6500" rows="6" placeholder="Mỗi dòng nhập một họ tên giáo viên" required></textarea></div>
+                <p class="form-help">Nhập tối đa 50 giáo viên, mỗi dòng một họ tên. Hệ thống tự tạo tên đăng nhập và mật khẩu; tài khoản mới chưa có lớp hoặc học sinh.</p>
+                <p class="auth-error" id="teacher-account-error" role="alert" hidden></p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                  <button class="button primary" id="create-teacher-submit" type="submit">Tạo tài khoản giáo viên</button>
+                  <button class="button" id="download-teacher-accounts" type="button" hidden>Tải Excel tài khoản vừa tạo</button>
+                </div>
+                <p class="form-help" id="teacher-account-status" aria-live="polite"></p>
+              </form>
+            </div>
+            <div class="panel" style="margin-top:16px;padding:18px;">
+              <div class="panel-title">Tạo tài khoản admin</div>
+              <form id="admin-account-form" class="form" style="margin-top:12px;">
+                <div class="field"><label for="new-admin-name">Họ và tên</label><input id="new-admin-name" maxlength="120" required /></div>
+                <div class="field"><label for="new-admin-username">Tên đăng nhập</label><input id="new-admin-username" minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,31}" required /></div>
+                <div class="field"><label for="new-admin-password">Mật khẩu khởi tạo</label><input id="new-admin-password" type="password" minlength="8" maxlength="72" required /></div>
+                <p class="form-help">Admin mới có quyền xem số liệu tổng hợp toàn hệ thống và tạo tài khoản quản trị khác.</p>
+                <p class="auth-error" id="admin-account-error" role="alert" hidden></p>
+                <button class="button primary" type="submit">Tạo tài khoản admin</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-personal" hidden>
+            <div class="page-heading">
+              <div><h1>Cá nhân</h1><div class="subtitle">Quản lý ảnh đại diện và mật khẩu đăng nhập của bạn.</div></div>
+            </div>
+            <div class="profile-layout">
+              <div class="panel" style="padding:20px;">
+                <div class="panel-title">Ảnh đại diện</div>
+                <p class="form-help">Ảnh PNG, JPEG hoặc WebP, tối đa 1 MB.</p>
+                <div id="profile-avatar-preview" class="profile-avatar-preview" style="margin:18px 0;"></div>
+                <form id="profile-avatar-form" class="form">
+                  <div class="field"><label for="profile-avatar-file">Chọn ảnh</label><input id="profile-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" required /></div>
+                  <p class="auth-error" id="profile-avatar-error" role="alert" hidden></p>
+                  <button class="button primary" id="profile-avatar-submit" type="submit">Lưu ảnh đại diện</button>
+                </form>
+              </div>
+              <div class="panel" style="padding:20px;">
+                <div class="panel-title">Đổi mật khẩu</div>
+                <p class="form-help">Mật khẩu mới cần có ít nhất 8 ký tự.</p>
+                <form id="profile-password-form" class="form" style="margin-top:14px;">
+                  <div class="field"><label for="profile-current-password">Mật khẩu hiện tại</label><input id="profile-current-password" type="password" autocomplete="current-password" required /></div>
+                  <div class="field"><label for="profile-new-password">Mật khẩu mới</label><input id="profile-new-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" required /></div>
+                  <div class="field"><label for="profile-confirm-password">Nhập lại mật khẩu mới</label><input id="profile-confirm-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" required /></div>
+                  <p class="auth-error" id="profile-password-error" role="alert" hidden></p>
+                  <button class="button primary" id="profile-password-submit" type="submit">Cập nhật mật khẩu</button>
+                </form>
+              </div>
+            </div>
+            <div class="panel" id="student-weekly-history-panel" style="padding:20px;margin-top:16px;" hidden>
+              <div class="panel-title">&#272;i&#7875;m r&#232;n luy&#7879;n theo tu&#7847;n</div>
+              <p class="form-help">&#272;i&#7875;m tu&#7847;n hi&#7879;n t&#7841;i v&#224; c&#225;c tu&#7847;n &#273;&#227; ch&#7889;t s&#7869; &#273;&#432;&#7907;c l&#432;u t&#7841;i &#273;&#226;y sau khi reset.</p>
+              <div class="profile-stats" style="margin:14px 0;">
+                <div class="profile-stat"><span>&#272;i&#7875;m c&#7897;ng tu&#7847;n n&#224;y</span><strong id="personal-week-positive" style="color:var(--green)">0</strong></div>
+                <div class="profile-stat"><span>&#272;i&#7875;m tr&#7915; tu&#7847;n n&#224;y</span><strong id="personal-week-negative" style="color:var(--red)">0</strong></div>
+                <div class="profile-stat"><span>T&#7893;ng tu&#7847;n n&#224;y</span><strong id="personal-week-total">0</strong></div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>N&#259;m h&#7885;c</th><th>Tu&#7847;n</th><th>&#272;i&#7875;m c&#7897;ng</th><th>&#272;i&#7875;m tr&#7915;</th><th>T&#7893;ng &#273;i&#7875;m</th></tr></thead>
+                  <tbody id="student-weekly-history-rows"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-no-class" hidden>
+            <div class="page-heading">
+              <div>
+                <h1>Tạo lớp học đầu tiên</h1>
+                <div class="subtitle">Lớp mới sẽ bắt đầu trống. Sau đó, thầy cô tự thêm học sinh vào lớp.</div>
+              </div>
+            </div>
+            <div class="panel" style="padding:18px;max-width:600px;">
+              <form id="create-class-form" class="form">
+                <div class="field"><label for="new-class-name">Tên lớp</label><input id="new-class-name" maxlength="80" placeholder="Ví dụ: 10A1" required /></div>
+                <div class="field"><label for="new-class-year">Năm học</label><input id="new-class-year" maxlength="20" placeholder="Ví dụ: 2026-2027" required /></div>
+                <p class="auth-error" id="create-class-error" role="alert" hidden></p>
+                <button class="button primary" id="create-class-submit" type="submit">Tạo lớp trống</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="page-section active" id="page-dashboard">
+            <div class="page-heading">
+              <div>
+                <h1 id="dashboard-greeting">Tổng quan lớp học</h1>
+                <div class="subtitle" id="dashboard-subtitle">Đăng nhập để xem dữ liệu lớp học.</div>
+              </div>
+              <div class="heading-actions">
+                <button class="button primary add-incident"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Ghi nhận sự việc</button>
+              </div>
+            </div>
+
+            <div class="cards">
+              <div class="stat-card">
+                <div class="stat-top"><span id="student-count-label">Học sinh trong lớp</span><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-1.7A4.3 4.3 0 0 1 6.8 14h4.4a4.3 4.3 0 0 1 4.3 4.3V20M16 5a3.5 3.5 0 0 1 0 6.2"/></svg></div></div>
+                <div class="stat-number" id="total-students">0</div>
+                <div class="stat-caption">Đang theo dõi trong năm học này</div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-top">Điểm cộng tháng này <div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></div></div>
+                <div class="stat-number" id="total-positive">0</div>
+                <div class="stat-caption">Tổng điểm tích cực của cả lớp</div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-top">Điểm trừ tháng này <div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></div></div>
+                <div class="stat-number" id="total-negative">0</div>
+                <div class="stat-caption">Tổng điểm cần cải thiện</div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-top">Chờ xác minh <div class="stat-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div></div>
+                <div class="stat-number" id="total-pending">0</div>
+                <div class="stat-caption">Sự việc cần cô xem lại</div>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <div class="panel-title">Sự việc gần đây</div>
+                    <div class="panel-subtitle">Những ghi nhận mới nhất của lớp</div>
+                  </div>
+                  <button class="text-link" data-goto="incidents">Xem tất cả →</button>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Học sinh</th>
+                        <th>Sự việc</th>
+                        <th>Điểm</th>
+                        <th>Ngày</th>
+                        <th>Trạng thái</th>
+                      </tr>
+                    </thead>
+                    <tbody id="recent-table"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <div class="panel trend-panel">
+                  <div class="panel-head">
+                    <div>
+                      <div class="panel-title">Xu hướng rèn luyện</div>
+                      <div class="panel-subtitle">Điểm ghi nhận trong 6 tháng gần nhất</div>
+                    </div>
+                    <select class="select-small" aria-label="Khoảng thời gian">
+                      <option>6 tháng</option>
+                    </select>
+                  </div>
+                  <div class="chart" id="chart"></div>
+                  <div class="legend"><span><i></i>Điểm cộng</span><span><i class="minus-dot"></i>Điểm trừ</span></div>
+                </div>
+
+                <div class="quick-panel">
+                  <div class="quick-panel-title">Ghi nhận nhanh</div>
+                  <p>Ghi lại một hành động tích cực hoặc sự việc cần lưu ý để theo dõi quá trình rèn luyện.</p>
+                  <button class="button add-incident"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Tạo ghi nhận mới</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-incidents">
+            <div class="page-heading">
+              <div>
+                <h1>Sổ ghi nhận sự việc</h1>
+                <div class="subtitle">Theo dõi đầy đủ các sự việc và minh chứng của lớp.</div>
+              </div>
+              <div class="heading-actions">
+                <button class="button primary add-incident"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Ghi nhận sự việc</button>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="filters">
+                <div class="search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                  <input id="incident-search" placeholder="Tìm theo học sinh hoặc nội dung..." aria-label="Tìm sự việc" />
+                </div>
+                <select class="filter-select" id="type-filter">
+                  <option value="all">Tất cả loại</option>
+                  <option value="positive">Điểm cộng</option>
+                  <option value="negative">Điểm trừ</option>
+                </select>
+                <select class="filter-select" id="status-filter">
+                  <option value="all">Mọi trạng thái</option>
+                  <option value="pending">Chờ xác minh</option>
+                  <option value="verified">Đã xác minh</option>
+                </select>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Học sinh</th>
+                      <th>Nội dung sự việc</th>
+                      <th>Loại</th>
+                      <th>Điểm</th>
+                      <th>Ngày xảy ra</th>
+                      <th>Người ghi nhận</th>
+                      <th>Minh chứng</th>
+                      <th>Trạng thái</th>
+                    </tr>
+                  </thead>
+                  <tbody id="incident-table"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-students">
+            <div class="page-heading">
+              <div>
+                <h1>Hồ sơ học sinh</h1>
+                <div class="subtitle">Tra cứu quá trình rèn luyện của từng học sinh trong lớp.</div>
+              </div>
+              <div class="heading-actions">
+                <button class="button" id="export-students"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m-5-5 5 5 5-5M4 18v3h16v-3"/></svg>Tải tài khoản đăng nhập</button>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="filters">
+                <div class="search">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                  <input id="student-search" placeholder="Tìm theo họ tên hoặc mã học sinh..." aria-label="Tìm học sinh" />
+                </div>
+                <select class="filter-select" id="student-class-filter" aria-label="Lớp"></select>
+              </div>
+              <div class="student-grid" id="student-grid" style="padding: 16px"></div>
+              <div class="panel" id="student-account-panel" style="margin: 16px; padding: 18px;" hidden>
+                <div class="panel-title">Tạo tài khoản học sinh</div>
+                <form id="student-account-form" class="form" style="margin-top: 12px;">
+                  <div class="field"><label for="new-student-name">Họ và tên học sinh</label><input id="new-student-name" maxlength="120" placeholder="Ví dụ: Nguyễn Văn An" required /></div>
+                  <p class="form-help">ClassTrack tự tạo mã đăng nhập và mật khẩu cho học sinh.</p>
+                  <p class="auth-error" id="student-account-error" role="alert" hidden></p>
+                  <button class="button primary" type="submit">Tạo tài khoản học sinh</button>
+                </form>
+                <div style="border-top:1px solid var(--line); margin-top:18px; padding-top:16px;">
+                  <div class="panel-title">Tải danh sách tài khoản học sinh</div>
+                  <p class="form-help" style="margin:8px 0 12px;">Nhập họ tên, mỗi học sinh một dòng. ClassTrack tự cấp mã đăng nhập và mật khẩu.</p>
+                  <p class="form-help">Tệp gộp tài khoản mới tạo của lớp trong phiên hiện tại, gồm họ tên, mã học sinh, tên đăng nhập và mật khẩu. Hãy tải trước khi đăng xuất hoặc đóng trang. Tệp CSV UTF-8 mở được bằng Excel.</p>
+                  <form id="bulk-student-form" class="form">
+                    <div class="field"><label for="bulk-student-list">Danh sách học sinh</label><textarea id="bulk-student-list" rows="7" placeholder="Nguyễn Văn An&#10;Trần Thị Bình" required></textarea></div>
+                    <p class="auth-error" id="bulk-student-error" role="alert" hidden></p>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                      <button class="button primary" id="bulk-student-submit" type="submit">Tạo tài khoản và mật khẩu</button>
+                      <button class="button" id="download-student-accounts" type="button" hidden>Tải bảng Excel tài khoản</button>
+                      <span id="bulk-student-status" class="form-help" role="status"></span>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-forum">
+            <div class="page-heading">
+              <div>
+                <h1>Diễn đàn lớp</h1>
+                <div class="subtitle">Tổ trưởng và nhóm trưởng đăng bảng xếp hạng điểm theo tuần để thành viên kiểm tra.</div>
+              </div>
+            </div>
+            <div class="panel" id="weekly-summary-panel" style="margin-bottom:16px;" hidden>
+              <div class="panel-head">
+                <div>
+                  <div class="panel-title">Đăng tổng kết điểm tổ/nhóm</div>
+                  <div class="panel-subtitle">Chỉ trưởng nhóm được phân công mới có thể đăng. Xếp hạng theo tổng điểm; điểm trừ được hiển thị riêng. Chỉ tính ghi nhận đã xác minh.</div>
+                </div>
+              </div>
+              <form id="weekly-summary-form" style="padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;align-items:end;">
+                <div class="field"><label for="forum-group">Tổ/nhóm phụ trách</label><select id="forum-group" required></select></div>
+                <div class="field"><label for="forum-week-start">Từ ngày</label><input id="forum-week-start" type="date" required /></div>
+                <div class="field"><label for="forum-week-end">Đến ngày</label><input id="forum-week-end" type="date" required /></div>
+                <div class="field" style="grid-column:1/-1;"><label for="forum-week-message">Lời nhắn cho tổ/nhóm (không bắt buộc)</label><textarea id="forum-week-message" rows="3" maxlength="2000" placeholder="Nhận xét hoặc thông báo cho nhóm..."></textarea></div>
+                <button class="button primary" id="weekly-summary-submit" type="submit">Tính điểm và đăng/cập nhật</button>
+              </form>
+            </div>
+            <div id="forum-posts" style="display:grid;gap:16px;"></div>
+          </section>
+
+          <section class="page-section" id="page-reports">
+            <div class="page-heading">
+              <div>
+                <h1>Báo cáo & thống kê</h1>
+                <div class="subtitle">Tổng hợp quá trình rèn luyện của lớp <span data-class-name>10A1</span>.</div>
+              </div>
+              <div class="heading-actions">
+                <button class="button primary" id="export-report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m-5-5 5 5 5-5M4 18v3h16v-3"/></svg>Tải báo cáo CSV</button>
+              </div>
+            </div>
+
+            <div class="report-summary">
+              <div class="stat-card">
+                <div class="stat-top">Tổng ghi nhận</div>
+                <div class="stat-number" id="report-events">0</div>
+                <div class="stat-caption">Trong năm học 2025 – 2026</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-top">Điểm cộng tích lũy</div>
+                <div class="stat-number" id="report-plus">0</div>
+                <div class="stat-caption">Tổng điểm tích cực của lớp</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-top">Điểm trừ tích lũy</div>
+                <div class="stat-number" id="report-minus">0</div>
+                <div class="stat-caption">Tổng điểm cần cải thiện</div>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <div class="panel-title">Tổng hợp theo học sinh</div>
+                    <div class="panel-subtitle">Điểm cộng, điểm trừ và tổng số ghi nhận</div>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Học sinh</th>
+                        <th>Điểm cộng</th>
+                        <th>Điểm trừ</th>
+                        <th>Số sự việc</th>
+                      </tr>
+                    </thead>
+                    <tbody id="report-table"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <div class="panel-title">Xuất dữ liệu</div>
+                    <div class="panel-subtitle">Tải bảng tổng hợp để lưu hoặc in</div>
+                  </div>
+                </div>
+                <div style="padding: 17px;">
+                  <div class="report-note">Báo cáo bao gồm danh sách ghi nhận, điểm quy ước, ngày xảy ra, người ghi nhận và trạng thái xác minh. Tệp có thể mở bằng Excel hoặc Google Sheets.</div>
+                  <button class="button primary" id="export-report-2" style="margin-top: 13px; width: 100%;">Tải báo cáo dạng CSV</button>
+                  <p style="font-size: 9px; color: #9aa5b6; line-height: 1.6; margin: 12px 0 0;">Lưu ý: hãy kiểm tra thông tin trước khi chia sẻ báo cáo có dữ liệu học sinh.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-roles">
+            <div class="page-heading">
+              <div>
+                <h1>Chức vụ lớp học</h1>
+                <div class="subtitle">Phân công cán bộ lớp và quản lý yêu cầu vai trò trong lớp <span data-class-name>10A1</span>.</div>
+              </div>
+            </div>
+            <div class="panel" id="teacher-leadership-panel" hidden style="margin-bottom: 16px;">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-title">Phân công chức vụ và tổ/nhóm</div>
+                  <div class="panel-subtitle">Lớp trưởng, lớp phó được ghi nhận điểm cho cả lớp. Tổ trưởng/nhóm trưởng chỉ ghi nhận cho thành viên nhóm mình.</div>
+                </div>
+              </div>
+              <form id="leadership-form" style="padding: 16px; display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; align-items:end;">
+                <div class="field"><label for="class-leader-select">Lớp trưởng</label><select id="class-leader-select"></select></div>
+                <div class="field"><label for="class-deputy-select">Lớp phó</label><select id="class-deputy-select"></select></div>
+                <button class="button primary" type="submit">Lưu chức vụ lớp</button>
+              </form>
+              <div style="border-top:1px solid var(--line); padding:16px;">
+                <div class="panel-title" style="margin-bottom:10px;">Tạo hoặc cập nhật tổ/nhóm</div>
+                <div class="panel-subtitle" style="margin-bottom:10px;">Nhập lại tên tổ/nhóm đã có để cập nhật danh sách thành viên và trưởng nhóm.</div>
+                <form id="group-form" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; align-items:end;">
+                  <div class="field"><label for="group-name">Tên tổ/nhóm</label><input id="group-name" maxlength="80" required placeholder="Ví dụ: Tổ 1 hoặc Nhóm Toán" /></div>
+                  <div class="field"><label for="group-member-search">Thành viên trong tổ/nhóm</label>
+                    <div class="group-member-picker">
+                      <input id="group-member-search" placeholder="Tìm theo tên hoặc mã học sinh..." autocomplete="off" />
+                      <div class="group-member-tools">
+                        <button class="button" id="group-select-visible" type="button">Chọn kết quả</button>
+                        <button class="button" id="group-clear-selection" type="button">Bỏ chọn</button>
+                        <span class="form-help" id="group-member-count" aria-live="polite">Đã chọn 0 học sinh</span>
+                      </div>
+                      <div id="group-member-list" class="group-member-list" role="group" aria-label="Danh sách học sinh"></div>
+                    </div>
+                  </div>
+                  <div class="field"><label for="group-leader">Chọn tổ trưởng/nhóm trưởng</label><select id="group-leader" required></select></div>
+                  <button class="button primary" type="submit">Lưu tổ/nhóm</button>
+                </form>
+                <div id="managed-groups" class="role-request-list" style="padding:12px 0 0;"></div>
+                <div style="border-top:1px solid var(--line);padding-top:16px;margin-top:10px;">
+                  <div class="panel-title" style="margin-bottom:10px;">Chuyển tổ hoặc xóa học sinh khỏi lớp</div>
+                  <p class="form-help">Chuyển tổ sẽ cập nhật thành viên ngay. Xóa khỏi lớp sẽ giữ lịch sử điểm cũ nhưng học sinh không còn truy cập lớp này.</p>
+                  <div class="table-wrap"><table><thead><tr><th>Học sinh</th><th>Tổ hiện tại</th><th>Chuyển đến</th><th>Thao tác</th></tr></thead><tbody id="teacher-managed-students"></tbody></table></div>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-title">Yêu cầu đang chờ và lịch sử</div>
+                  <div class="panel-subtitle">Vai trò chỉ có hiệu lực sau khi giáo viên phê duyệt.</div>
+                </div>
+              </div>
+              <div class="role-request-list" id="role-request-list">
+                <div class="empty-state">Chưa có yêu cầu vai trò.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-section" id="page-points">
+            <div class="page-heading">
+              <div>
+                <h1>Mức điểm cộng và trừ</h1>
+                <div class="subtitle">Tạo danh mục điểm cố định riêng cho lớp <span data-class-name>10A1</span>. Tổ trưởng và nhóm trưởng sẽ dùng các mức này khi ghi nhận cho thành viên mình phụ trách.</div>
+              </div>
+            </div>
+            <div class="panel" id="weekly-score-reset-panel" style="padding:18px;margin-bottom:14px;" hidden>
+              <div class="panel-head" style="padding:0 0 12px;">
+                <div>
+                  <div class="panel-title">&#272;i&#7875;m tu&#7847;n hi&#7879;n t&#7841;i: <span id="weekly-score-period"></span></div>
+                  <div class="panel-subtitle">Reset s&#7869; l&#432;u b&#7843;ng &#273;i&#7875;m tu&#7847;n v&#224;o l&#7883;ch s&#7917; c&#7911;a t&#7915;ng h&#7885;c sinh r&#7891;i b&#7855;t &#273;&#7847;u t&#237;nh t&#7915; 0.</div>
+                </div>
+                <button class="button primary" id="weekly-score-reset" type="button">Reset tu&#7847;n m&#7899;i</button>
+              </div>
+              <div class="form-help" id="weekly-score-reset-status" role="status"></div>
+            </div>
+            <div class="panel" style="padding:18px;">
+              <div class="panel-title" style="margin-bottom:10px;">Thêm mức điểm cố định</div>
+              <form id="conduct-category-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end;">
+                <div class="field"><label for="conduct-category-name">Tên mức điểm</label><input id="conduct-category-name" maxlength="80" required placeholder="Ví dụ: Hỗ trợ bạn học" /></div>
+                <div class="field"><label for="conduct-category-kind">Loại điểm</label><select id="conduct-category-kind"><option value="positive">Điểm cộng</option><option value="negative">Điểm trừ</option></select></div>
+                <div class="field"><label for="conduct-category-points">Số điểm cố định</label><input id="conduct-category-points" type="number" min="1" max="100" value="1" required /></div>
+                <button class="button primary" type="submit">Thêm mức điểm</button>
+              </form>
+              <div id="conduct-category-list" class="role-request-list" style="padding-top:12px;"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="role-request-modal" role="dialog" aria-modal="true" aria-labelledby="role-request-title">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="role-request-title">Yêu cầu cấp vai trò</h2>
+            <p>Giáo viên sẽ xem xét trước khi quyền có hiệu lực.</p>
+          </div>
+          <button class="close-button" id="role-request-close" aria-label="Đóng">×</button>
+        </div>
+        <form class="form" id="role-request-form">
+          <div class="field">
+            <label for="requested-role">Vai trò muốn yêu cầu</label>
+            <select id="requested-role" required>
+              <option value="ROLE_CLASS_LEADER">Lớp trưởng</option>
+              <option value="ROLE_CLASS_DEPUTY">Lớp phó</option>
+              <option value="ROLE_GROUP_LEADER">Tổ trưởng/nhóm trưởng</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="role-request-reason">Lý do</label>
+            <textarea id="role-request-reason" maxlength="500" placeholder="Nêu ngắn gọn lý do yêu cầu..."></textarea>
+          </div>
+          <div class="form-foot">
+            <button class="button" type="button" id="role-request-cancel">Hủy</button>
+            <button class="button primary" type="submit">Gửi yêu cầu</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="incident-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="modal-title">Ghi nhận sự việc</h2>
+            <p>Lưu lại thông tin khách quan về quá trình rèn luyện.</p>
+          </div>
+          <button class="close-button" id="close-modal" aria-label="Đóng">×</button>
+        </div>
+
+        <form class="form" id="incident-form">
+          <div class="form-grid">
+            <div class="field full">
+              <label for="incident-students">Học sinh <span style="color: #e56c70">*</span></label>
+              <select id="incident-students" required>
+                <option value="">Chọn học sinh...</option>
+              </select>
+              <div class="form-help">Bản dùng thử: chọn một học sinh cho mỗi ghi nhận.</div>
+            </div>
+
+            <div class="field full">
+              <label for="incident-category">Mức điểm theo quy định lớp <span style="color: #e56c70">*</span></label>
+              <select id="incident-category" required></select>
+              <div class="form-help">Điểm cộng/trừ do giáo viên cài đặt sẵn cho lớp; thành viên không thể tự đổi số điểm.</div>
+            </div>
+
+            <div class="field">
+              <label for="incident-date">Ngày xảy ra</label>
+              <input id="incident-date" type="date" required />
+            </div>
+
+            <div class="field">
+              <label for="incident-source">Nguồn thông tin</label>
+              <input id="incident-source" maxlength="80" placeholder="VD: Giáo viên bộ môn" />
+            </div>
+
+            <div class="field full">
+              <label for="incident-description">Mô tả chi tiết</label>
+              <textarea id="incident-description" maxlength="500" placeholder="Ghi rõ bối cảnh, nội dung và thông tin liên quan..."></textarea>
+            </div>
+
+            <div class="field full">
+              <label for="incident-evidence">Minh chứng đính kèm</label>
+              <input id="incident-evidence" type="file" accept="image/*,.pdf,.doc,.docx" />
+              <div class="form-help">Hiện chỉ lưu tên tệp trong cơ sở dữ liệu; nội dung tệp chưa được tải lên máy chủ.</div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <button class="button" type="button" id="cancel-modal">Hủy</button>
+            <button class="button primary" type="submit">Lưu ghi nhận</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="point-award-modal" role="dialog" aria-modal="true" aria-labelledby="point-award-title">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="point-award-title">Cộng/trừ điểm thành viên</h2>
+            <p>Kéo mức điểm vào học sinh để ghi nhận; có thể chạm vào mức điểm để ghi nhanh.</p>
+          </div>
+          <button class="close-button" id="close-point-award" aria-label="Đóng">×</button>
+        </div>
+        <div class="award-dropzone" id="point-award-dropzone" role="region" aria-label="Khu vực thả mức điểm vào học sinh">
+          <strong id="point-award-student-name">Học sinh</strong>
+          <span class="form-help">Thả mức điểm vào đây</span>
+        </div>
+        <div class="award-category-list" id="point-award-categories"></div>
+        <p class="form-help" id="point-award-status" role="status" style="padding:0 20px 18px;"></p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-name">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2>Hồ sơ rèn luyện</h2>
+            <p>Lớp <span data-class-name>10A1</span> · Năm học <span data-academic-year>2025 – 2026</span></p>
+          </div>
+          <button class="close-button" data-close-profile aria-label="Đóng">×</button>
+        </div>
+        <div id="profile-content"></div>
+        <div class="panel-head" style="border-top: 1px solid #f0f2f6; margin-top: 8px;">
+          <div class="panel-title">&#272;i&#7875;m c&#225;c tu&#7847;n &#273;&#227; &#273;&#259;ng l&#234;n di&#7877;n &#273;&#224;n</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tu&#7847;n</th><th>T&#7893;/nh&#243;m</th><th>&#272;i&#7875;m c&#7897;ng</th><th>&#272;i&#7875;m tr&#7915;</th><th>T&#7893;ng tu&#7847;n</th></tr></thead>
+            <tbody id="profile-weekly-posted-scores"></tbody>
+          </table>
+        </div>
+        <div class="panel-head" style="border-top: 1px solid #f0f2f6; margin-top: 8px;">
+          <div class="panel-title">Lịch sử ghi nhận</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Sự việc</th>
+                <th>Điểm</th>
+                <th>Ngày</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="profile-history"></tbody>
+          </table>
+        </div>
+        <div style="padding: 14px 20px 18px; text-align: right;">
+          <button class="button" data-close-profile>Đóng hồ sơ</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script>
+      const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+      const localApiOrigin = `http://${window.location.hostname || "127.0.0.1"}:3000`;
+      const apiOrigin = window.location.protocol === "file:" || (isLocalHost && window.location.port !== "3000")
+        ? localApiOrigin
+        : "";
+
+      let students = [];
+      let incidents = [];
+      let conductCategories = [];
+      let forumPosts = [];
+      let forumGroups = [];
+      let weeklyScoreState = { currentWeekStart: "", currentPeriodStartedAtUs: null, canReset: false, history: [] };
+      let currentUser = null;
+      let generatedTeacherAccounts = [];
+      let adminAccountCache = [];
+      let adminPermissionTargetId = null;
+      let classMemberships = [];
+      let activeClass = null;
+      const generatedStudentAccountsByClass = new Map();
+      let classLoadVersion = 0;
+      let roleRequestLoadVersion = 0;
+      let leadershipData = { students: [], groups: [] };
+      let selectedGroupMemberIds = new Set();
+      let editingGroupId = null;
+      let pointAwardStudentId = null;
+      let pointAwardSaving = false;
+      let activeTheme = "light";
+      try { activeTheme = localStorage.getItem("classtrack-theme") === "dark" ? "dark" : "light"; } catch {}
+      document.documentElement.dataset.theme = activeTheme;
+
+      function setTheme(theme) {
+        activeTheme = theme === "dark" ? "dark" : "light";
+        document.documentElement.dataset.theme = activeTheme;
+        try { localStorage.setItem("classtrack-theme", activeTheme); } catch {}
+        const label = document.querySelector("#settings-button span");
+        if (label) label.textContent = activeTheme === "dark" ? "Chế độ sáng" : "Chế độ tối";
+        const authToggle = document.getElementById("auth-theme-toggle");
+        if (authToggle) authToggle.textContent = activeTheme === "dark" ? "Bật chế độ sáng" : "Bật chế độ tối";
+        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", activeTheme === "dark" ? "#131a25" : "#f5f7fb");
+      }
+
+      function csvCell(value) {
+        let text = String(value ?? "").replace(/[\r\n]+/g, " ");
+        if (/^[=+\-@\t]/.test(text)) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+
+      function downloadStudentAccounts() {
+        const generatedStudentAccounts = activeClass ? generatedStudentAccountsByClass.get(activeClass.id) || [] : [];
+        if (!generatedStudentAccounts.length) {
+          showToast("Chưa có tài khoản mới được tạo trong phiên này để tải mật khẩu. Hãy tạo tài khoản học sinh trước.");
+          return;
+        }
+        const rows = [
+          ["Họ và tên", "Mã học sinh", "Tên đăng nhập", "Mật khẩu"],
+          ...generatedStudentAccounts.map(({ fullName, studentNumber, username, password }) => [fullName, studentNumber, username, password])
+        ];
+        const csv = "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `tai-khoan-hoc-sinh-${(activeClass?.name || "classtrack").replace(/[^a-z0-9_-]/gi, "-")}.csv`;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function downloadTeacherAccounts() {
+        if (!generatedTeacherAccounts.length) return;
+        const rows = [
+          ["Họ và tên", "Tên đăng nhập", "Mật khẩu"],
+          ...generatedTeacherAccounts.map(({ fullName, username, password }) => [fullName, username, password])
+        ];
+        const csv = "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "tai-khoan-giao-vien.csv";
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function clearGeneratedAccounts() {
+        generatedStudentAccountsByClass.clear();
+        generatedTeacherAccounts = [];
+        const downloadButton = document.getElementById("download-student-accounts");
+        if (downloadButton) downloadButton.hidden = true;
+        const teacherDownloadButton = document.getElementById("download-teacher-accounts");
+        if (teacherDownloadButton) teacherDownloadButton.hidden = true;
+        const resetResult = document.getElementById("admin-reset-result");
+        if (resetResult) resetResult.hidden = true;
+        const temporaryPassword = document.getElementById("admin-temporary-password");
+        if (temporaryPassword) temporaryPassword.value = "";
+        adminAccountCache = [];
+        const status = document.getElementById("bulk-student-status");
+        if (status) status.textContent = "";
+      }
+
+      function rememberGeneratedStudentAccounts(accounts) {
+        if (!activeClass || !Array.isArray(accounts) || !accounts.length) return 0;
+        const existing = generatedStudentAccountsByClass.get(activeClass.id) || [];
+        const merged = new Map(existing.map((account) => [account.studentNumber, account]));
+        accounts.forEach((account) => merged.set(account.studentNumber, account));
+        const allAccounts = [...merged.values()];
+        generatedStudentAccountsByClass.set(activeClass.id, allAccounts);
+        updateStudentAccountExport();
+        return allAccounts.length;
+      }
+
+      function updateStudentAccountExport() {
+        const accounts = activeClass ? generatedStudentAccountsByClass.get(activeClass.id) || [] : [];
+        const downloadButton = document.getElementById("download-student-accounts");
+        if (downloadButton) {
+          downloadButton.hidden = accounts.length === 0;
+          downloadButton.textContent = accounts.length
+            ? `Tải bảng Excel tài khoản (${accounts.length} học sinh)`
+            : "Tải bảng Excel tài khoản";
+        }
+        const status = document.getElementById("bulk-student-status");
+        if (status) status.textContent = accounts.length
+          ? `Tệp sẽ gồm ${accounts.length} tài khoản mới của lớp này trong phiên hiện tại.`
+          : "";
+      }
+
+      const byId = (id) => students.find((student) => student.id === id);
+      const initials = (name) => name.split(/\s+/).slice(-2).map((part) => part[0]).join("").toUpperCase();
+      const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+      const formatDate = (value) => new Date(value + "T00:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+      async function apiRequest(path, options = {}) {
+        const method = (options.method || "GET").toUpperCase();
+        const canRetry = method === "GET" && options.retry !== false;
+        const maxAttempts = canRetry ? 2 : 1;
+        let response;
+        let networkError;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 15000);
+          try {
+            if (window.location.protocol !== "file:" && navigator.onLine === false) {
+              throw new Error("offline");
+            }
+            response = await fetch(`${apiOrigin}${path}`, {
+              method,
+              credentials: apiOrigin ? "include" : "same-origin",
+              headers: options.body ? { "Content-Type": "application/json" } : undefined,
+              body: options.body ? JSON.stringify(options.body) : undefined,
+              signal: options.signal || controller.signal
+            });
+            networkError = null;
+            break;
+          } catch (error) {
+            networkError = error;
+            if (attempt < maxAttempts) await new Promise((resolve) => setTimeout(resolve, 350));
+          } finally {
+            clearTimeout(timeout);
+          }
+        }
+        if (!response) {
+          const error = new Error(window.location.protocol === "file:"
+            ? "Không thể kết nối ClassTrack API. Hãy mở ứng dụng qua máy chủ backend rồi tải lại trang."
+            : navigator.onLine === false
+              ? "Thiết bị đang ngoại tuyến. Hãy kiểm tra kết nối mạng rồi thử lại."
+              : "Máy chủ ClassTrack không phản hồi. Hãy kiểm tra backend hoặc thử lại sau.");
+          error.cause = networkError;
+          error.status = 0;
+          error.isNetworkError = true;
+          throw error;
+        }
+        const result = response.status === 204 ? null : await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = response.status === 404 && path === "/api/session"
+            ? (isLocalHost
+              ? "Không tìm thấy ClassTrack API tại cổng 3000. Hãy khởi động backend rồi tải lại trang."
+              : "ClassTrack API is missing from this deployment. Git hosting serves source files only; deploy the Node.js API and PostgreSQL database, then serve this page from that API origin.")
+            : response.status === 405
+            ? `Máy chủ không hỗ trợ ${method} ${path}. Frontend cần được phục vụ cùng backend ClassTrack hoặc backend phải chạy tại ${localApiOrigin}.`
+            : result?.error || `Request failed (${response.status}) for ${method} ${path}.`;
+          const error = new Error(message);
+          error.status = response.status;
+          error.isAuthError = response.status === 401;
+          throw error;
+        }
+        return result;
+      }
+
+      function roleLabel(roles = []) {
+        const labels = {
+          ROLE_TEACHER: "Giáo viên",
+          ROLE_CLASS_LEADER: "Lớp trưởng",
+          ROLE_CLASS_DEPUTY: "Lớp phó",
+          ROLE_GROUP_LEADER: "Tổ trưởng/nhóm trưởng",
+          ROLE_STUDENT: "Học sinh"
+        };
+        return (Array.isArray(roles) ? roles : []).map((role) => labels[role] || role).join(" · ");
+      }
+
+      function hasAdminPermission(permission) {
+        return Boolean(currentUser?.isSuperAdmin || currentUser?.adminPermissions?.includes(permission));
+      }
+
+      function setLoginMessage(message = "") {
+        const error = document.getElementById("login-error");
+        error.textContent = message;
+        error.hidden = !message;
+      }
+
+      async function loadClassData() {
+        const loadVersion = ++classLoadVersion;
+        roleRequestLoadVersion++;
+        if (!activeClass) return;
+        const permissions = new Set(activeClass.permissions);
+        document.getElementById("student-account-panel").hidden = !activeClass.roles.includes("ROLE_TEACHER") || !permissions.has("students:list");
+        document.getElementById("student-count-label").textContent = permissions.has("students:list")
+          ? "Học sinh trong lớp"
+          : "Học sinh trong phạm vi";
+        const requests = [];
+        if (permissions.has("students:list") || permissions.has("conduct:view_own") || permissions.has("conduct:view_group")) {
+          requests.push(apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`));
+        } else {
+          requests.push(Promise.resolve({ students: currentUser.studentNumber ? [{
+            id: currentUser.studentNumber,
+            name: currentUser.fullName,
+            color: "#e3e8f5",
+            className: activeClass.name
+          }] : [] }));
+        }
+
+        if (permissions.has("conduct:view_all") || permissions.has("conduct:view_own") || permissions.has("conduct:view_group")) {
+          requests.push(apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/conduct-records`));
+        } else {
+          requests.push(Promise.resolve({ incidents: [] }));
+        }
+
+        const [studentData, incidentData, categoryData, forumData, forumGroupData, weeklyScoreData] = await Promise.all([
+          ...requests,
+          apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/conduct-categories`),
+          apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/forum`),
+          activeClass.roles.includes("ROLE_GROUP_LEADER")
+            ? apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/forum/managed-groups`)
+            : Promise.resolve({ groups: [] }),
+          permissions.has("classes:read")
+            ? apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/weekly-scores`)
+            : Promise.resolve({ currentWeekStart: "", currentPeriodStartedAtUs: null, canReset: false, history: [] })
+        ]);
+        if (loadVersion !== classLoadVersion || !activeClass) return;
+        students = Array.isArray(studentData?.students) ? studentData.students : [];
+        incidents = Array.isArray(incidentData?.incidents) ? incidentData.incidents : [];
+        conductCategories = Array.isArray(categoryData?.categories) ? categoryData.categories : [];
+        forumPosts = Array.isArray(forumData?.posts) ? forumData.posts : [];
+        forumGroups = Array.isArray(forumGroupData?.groups) ? forumGroupData.groups : [];
+        weeklyScoreState = {
+          currentWeekStart: weeklyScoreData?.currentWeekStart || "",
+          currentPeriodStartedAtUs: weeklyScoreData?.currentPeriodStartedAtUs || null,
+          canReset: Boolean(weeklyScoreData?.canReset),
+          history: Array.isArray(weeklyScoreData?.history) ? weeklyScoreData.history : []
+        };
+        const resetPanel = document.getElementById("weekly-score-reset-panel");
+        resetPanel.hidden = !activeClass.roles.includes("ROLE_GROUP_LEADER") || forumGroups.length === 0;
+        document.getElementById("conduct-category-form").closest(".panel").hidden = !activeClass.roles.includes("ROLE_TEACHER");
+        document.getElementById("weekly-score-period").textContent = weeklyScoreState.currentWeekStart
+          ? `${formatDate(weeklyScoreState.currentWeekStart)} – ${dateInputValue(new Date())}`
+          : "Từ đầu tuần này";
+        document.getElementById("weekly-score-reset").disabled = !weeklyScoreState.canReset;
+        document.getElementById("weekly-score-reset-status").textContent = weeklyScoreState.canReset
+          ? "Nhấn nút khi bắt đầu tuần mới để lưu điểm tuần này và tính lại từ 0."
+          : "Tuần điểm đã được reset hôm nay; có thể reset lại từ ngày mai.";
+        if (activeClass.roles.includes("ROLE_GROUP_LEADER")) {
+          document.getElementById("weekly-score-reset-status").innerHTML += " <strong>&#193;p d&#7909;ng cho to&#224;n b&#7897; l&#7899;p.</strong>";
+          document.querySelector("#page-points .page-heading h1").innerHTML = "Reset &#273;i&#7875;m tu&#7847;n";
+          document.querySelector("#page-points .page-heading .subtitle").innerHTML = "T&#7893; tr&#432;&#7903;ng/nh&#243;m tr&#432;&#7903;ng ph&#7909; tr&#225;ch reset tu&#7847;n &#273;i&#7875;m cho c&#7843; l&#7899;p; b&#7843;ng &#273;i&#7875;m tu&#7847;n tr&#432;&#7899;c s&#7869; &#273;&#432;&#7907;c l&#432;u v&#224;o l&#7883;ch s&#7917;.";
+        } else {
+          document.querySelector("#page-points .page-heading h1").innerHTML = "M&#7913;c &#273;i&#7875;m c&#7897;ng v&#224; tr&#7915;";
+          document.querySelector("#page-points .page-heading .subtitle").innerHTML = "T&#7841;o danh m&#7909;c &#273;i&#7875;m c&#7889; &#273;&#7883;nh ri&#234;ng cho l&#7899;p <span data-class-name></span>. T&#7893; tr&#432;&#7903;ng v&#224; nh&#243;m tr&#432;&#7903;ng s&#7869; d&#249;ng c&#225;c m&#7913;c n&#224;y khi ghi nh&#7853;n cho th&#224;nh vi&#234;n m&#236;nh ph&#7909; tr&#225;ch.";
+          document.querySelectorAll("#page-points [data-class-name]").forEach((element) => { element.textContent = activeClass.name; });
+        }
+        document.getElementById("weekly-summary-panel").hidden = !activeClass.roles.includes("ROLE_GROUP_LEADER");
+        document.getElementById("forum-group").innerHTML = forumGroups.length
+          ? forumGroups.map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`).join("")
+          : `<option value="">Bạn chưa được phân công tổ/nhóm</option>`;
+        document.getElementById("weekly-summary-submit").disabled = forumGroups.length === 0;
+        renderAll();
+        renderPersonalWeeklyHistory();
+        if (permissions.has("roles:manage")) {
+          await Promise.all([loadRoleRequests(activeClass.id), loadLeadership(activeClass.id)]);
+        } else {
+          document.getElementById("teacher-leadership-panel").hidden = true;
+        }
+      }
+
+      async function enterApp(session) {
+        currentUser = session.user;
+        document.getElementById("profile-password-error").hidden = true;
+        classMemberships = Array.isArray(session?.classes) ? session.classes : [];
+        students = [];
+        incidents = [];
+        const classSwitcher = document.getElementById("class-switcher");
+        classSwitcher.innerHTML = classMemberships.map((item) =>
+          `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} · ${escapeHtml(roleLabel(item.roles))}</option>`
+        ).join("");
+        document.getElementById("auth-screen").hidden = true;
+        document.getElementById("app-shell").hidden = false;
+        document.getElementById("sidebar-user-name").textContent = currentUser.fullName;
+        document.getElementById("header-user-name").textContent = currentUser.fullName;
+        document.querySelectorAll(".top-user .avatar, .user > .avatar").forEach((element) => {
+          element.innerHTML = currentUser.avatarData ? `<img src="${escapeHtml(currentUser.avatarData)}" alt="">` : escapeHtml(initials(currentUser.fullName));
+        });
+        renderPersonalAvatar();
+        const adminPage = document.getElementById("page-admin");
+        const adminShellItems = document.querySelectorAll(".sidebar .nav-label, .sidebar .nav, #class-info, #settings-button, .school-card");
+        if (currentUser.mustChangePassword) {
+          activeClass = null;
+          classMemberships = [];
+          classSwitcher.hidden = true;
+          document.getElementById("personal-page-open").hidden = true;
+          document.getElementById("role-request-open").hidden = true;
+          adminShellItems.forEach((element) => { element.hidden = true; });
+          document.querySelectorAll(".page-section").forEach((section) => {
+            section.classList.toggle("active", section.id === "page-personal");
+            section.hidden = section.id !== "page-personal";
+          });
+          document.getElementById("sidebar-user-role").textContent = "Cần đổi mật khẩu";
+          document.getElementById("breadcrumb-title").textContent = "Đổi mật khẩu bắt buộc";
+          document.getElementById("profile-password-error").textContent = "Tài khoản vừa được đặt lại mật khẩu. Hãy tạo mật khẩu mới để tiếp tục.";
+          document.getElementById("profile-password-error").hidden = false;
+          return;
+        }
+        document.getElementById("personal-page-open").hidden = false;
+        if (currentUser.isAdmin) {
+          classSwitcher.hidden = true;
+          adminShellItems.forEach((element) => { element.hidden = true; });
+          document.querySelectorAll(".page-section").forEach((section) => {
+            section.classList.remove("active");
+            section.hidden = true;
+          });
+          adminPage.hidden = false;
+          adminPage.classList.add("active");
+          document.getElementById("breadcrumb-title").textContent = "Quản trị tài khoản";
+          document.getElementById("sidebar-user-role").textContent = currentUser.isSuperAdmin ? "Super Admin" : "Admin";
+          document.getElementById("admin-overview-panel").hidden = !hasAdminPermission("reports:view");
+          document.getElementById("admin-account-management").hidden = !hasAdminPermission("accounts:manage");
+          document.getElementById("admin-audit-panel").hidden = !hasAdminPermission("audit:view");
+          document.getElementById("teacher-account-panel").hidden = !hasAdminPermission("teachers:manage");
+          document.getElementById("admin-create-panel").hidden = !hasAdminPermission("admins:manage");
+          if (hasAdminPermission("reports:view")) await loadAdminOverview();
+          if (hasAdminPermission("accounts:manage")) await loadAdminAccounts();
+          if (hasAdminPermission("audit:view")) await loadAdminAudit();
+          return;
+        }
+        classSwitcher.hidden = false;
+        adminShellItems.forEach((element) => { element.hidden = false; });
+        document.querySelectorAll(".page-section").forEach((section) => {
+          section.hidden = false;
+          section.classList.toggle("active", section.id === "page-dashboard");
+        });
+        adminPage.classList.remove("active");
+        adminPage.hidden = true;
+        activeClass = classMemberships[0] || null;
+        if (!activeClass) {
+          document.getElementById("sidebar-user-role").textContent = currentUser.isTeacher ? "Giáo viên · Chưa có lớp" : "Chưa được cấp lớp";
+          document.getElementById("class-info").querySelector("span").textContent = "Chưa có lớp";
+          classSwitcher.hidden = true;
+          adminShellItems.forEach((element) => { element.hidden = true; });
+          document.querySelectorAll(".page-section").forEach((section) => {
+            section.classList.remove("active");
+            section.hidden = true;
+          });
+          const noClassPage = document.getElementById("page-no-class");
+          noClassPage.hidden = false;
+          noClassPage.classList.add("active");
+          document.getElementById("breadcrumb-title").textContent = "Tạo lớp học";
+          return;
+        }
+        document.getElementById("page-no-class").hidden = true;
+        classSwitcher.value = activeClass.id;
+        updateClassPresentation();
+        await loadClassData();
+      }
+
+      async function loadAdminOverview() {
+        const result = await apiRequest("/api/admin/overview");
+        document.getElementById("admin-account-count").textContent = result.overview.accountCount;
+        document.getElementById("admin-class-count").textContent = result.overview.classCount;
+        document.getElementById("admin-teacher-count").textContent = result.overview.teacherCount;
+        document.getElementById("admin-positive-points").textContent = result.overview.positivePoints;
+        document.getElementById("admin-negative-points").textContent = result.overview.negativePoints;
+        document.getElementById("admin-pending-records").textContent = result.overview.pendingRecords;
+      }
+
+      async function loadAdminAccounts() {
+        const query = new URLSearchParams();
+        const values = {
+          q: document.getElementById("admin-account-search").value.trim(),
+          type: document.getElementById("admin-account-type").value,
+          status: document.getElementById("admin-account-status").value,
+          from: document.getElementById("admin-account-from").value,
+          to: document.getElementById("admin-account-to").value
+        };
+        Object.entries(values).forEach(([key, value]) => { if (value) query.set(key, value); });
+        const result = await apiRequest(`/api/admin/accounts${query.size ? `?${query}` : ""}`);
+        adminAccountCache = result.accounts;
+        const rows = document.getElementById("admin-account-rows");
+        const typeNames = { student: "Học sinh", teacher: "Giáo viên", admin: "Admin", super_admin: "Super Admin", user: "Tài khoản" };
+        rows.innerHTML = result.accounts.length ? result.accounts.map((account) => {
+          const self = account.id === currentUser.id;
+          const protectedAccount = account.isSuperAdmin && !currentUser.isSuperAdmin;
+          const controls = [];
+          if (!self && !protectedAccount) {
+            controls.push(`<button class="button" type="button" data-account-action="${account.isActive ? "lock" : "unlock"}" data-account-id="${escapeHtml(account.id)}">${account.isActive ? "Khóa" : "Mở khóa"}</button>`);
+            controls.push(`<button class="button" type="button" data-account-action="reset" data-account-id="${escapeHtml(account.id)}">Đặt lại mật khẩu</button>`);
+            controls.push(`<button class="button" type="button" data-account-action="revoke" data-account-id="${escapeHtml(account.id)}">Thu hồi phiên</button>`);
+          }
+          if (currentUser.isSuperAdmin && account.type === "admin" && !self) {
+            controls.push(`<button class="button" type="button" data-account-action="permissions" data-account-id="${escapeHtml(account.id)}">Phân quyền</button>`);
+            if (!self) controls.push(`<button class="button" type="button" data-account-action="super" data-account-id="${escapeHtml(account.id)}" data-next-super="${!account.isSuperAdmin}">${account.isSuperAdmin ? "Thu hồi Super Admin" : "Cấp Super Admin"}</button>`);
+          }
+          return `<tr><td><strong>${escapeHtml(account.fullName)}</strong><br><small>${escapeHtml(account.username)}${self ? " · Bạn" : ""}</small>${account.mustChangePassword ? "<br><small>Cần đổi mật khẩu</small>" : ""}</td><td>${typeNames[account.type] || "Tài khoản"}</td><td>${account.isActive ? "Đang hoạt động" : "Đã khóa"}</td><td>${escapeHtml(new Date(account.createdAt).toLocaleString("vi-VN"))}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap;">${controls.join("") || "—"}</div></td></tr>`;
+        }).join("") : `<tr><td colspan="5">Không tìm thấy tài khoản.</td></tr>`;
+        document.getElementById("admin-account-result").textContent = `Hiển thị ${result.accounts.length} tài khoản (tối đa 250 kết quả).`;
+      }
+
+      async function loadAdminAudit() {
+        const result = await apiRequest("/api/admin/audit");
+        document.getElementById("admin-audit-rows").innerHTML = result.events.length
+          ? result.events.map((entry) => `<article class="role-request-card"><div><div class="panel-title">${escapeHtml(entry.action)}</div><div class="role-request-reason">${escapeHtml(entry.actorName || entry.actorUsername || "Tài khoản đã xóa")} · ${escapeHtml(entry.targetType)} ${escapeHtml(entry.targetId)} · ${escapeHtml(new Date(entry.createdAt).toLocaleString("vi-VN"))}<br><small>${escapeHtml(JSON.stringify(entry.details || {}))}</small></div></div></article>`).join("")
+          : `<div class="empty-state">Chưa có thao tác quản trị trong nhật ký.</div>`;
+      }
+
+      function updateClassPresentation() {
+        if (!activeClass) return;
+        document.getElementById("sidebar-user-role").textContent = roleLabel(activeClass.roles);
+        document.getElementById("class-info").querySelector("span").textContent = `Lớp ${activeClass.name}`;
+        document.getElementById("class-info").setAttribute("aria-label", `Lớp ${activeClass.name}`);
+        document.getElementById("dashboard-greeting").textContent = `Xin chào, ${currentUser.fullName} 👋`;
+        document.getElementById("dashboard-subtitle").textContent = `Theo dõi lớp ${activeClass.name} · ${activeClass.academicYear}.`;
+        document.querySelectorAll("[data-class-name]").forEach((element) => {
+          element.textContent = activeClass.name;
+        });
+        document.querySelectorAll("[data-academic-year]").forEach((element) => {
+          element.textContent = activeClass.academicYear;
+        });
+        document.getElementById("student-class-filter").innerHTML =
+          `<option value="${escapeHtml(activeClass.id)}">Lớp ${escapeHtml(activeClass.name)}</option>`;
+        document.querySelector(".school-year").textContent = `Năm học ${activeClass.academicYear}`;
+        updateStudentAccountExport();
+
+        const permissions = new Set(activeClass.permissions);
+        document.getElementById("weekly-summary-panel").hidden = !activeClass.roles.includes("ROLE_GROUP_LEADER");
+        const rolesNav = document.querySelector('.nav-item[data-page="roles"]');
+        rolesNav.hidden = !permissions.has("roles:manage");
+        const pointsNav = document.querySelector('.nav-item[data-page="points"]');
+        pointsNav.hidden = !(activeClass.roles.includes("ROLE_GROUP_LEADER") ||
+          (permissions.has("roles:manage") && activeClass.roles.includes("ROLE_TEACHER")));
+        const roleRequestButton = document.getElementById("role-request-open");
+        const requestedRoles = [
+          ["ROLE_CLASS_LEADER", "Lớp trưởng"],
+          ["ROLE_CLASS_DEPUTY", "Lớp phó"],
+          ["ROLE_GROUP_LEADER", "Tổ trưởng/nhóm trưởng"]
+        ].filter(([role]) => !activeClass.roles.includes(role));
+        document.getElementById("requested-role").innerHTML = requestedRoles.map(([role, label]) =>
+          `<option value="${role}">${label}</option>`
+        ).join("");
+        roleRequestButton.hidden = activeClass.roles.includes("ROLE_TEACHER") || requestedRoles.length === 0;
+        document.querySelectorAll(".add-incident").forEach((button) => {
+          button.hidden = !permissions.has("conduct:create");
+        });
+        const studentsNav = document.querySelector('.nav-item[data-page="students"]');
+        studentsNav.hidden = !permissions.has("students:list") &&
+          !permissions.has("conduct:view_own") &&
+          !permissions.has("conduct:view_group") &&
+          !permissions.has("conduct:view_all");
+        const reportsNav = document.querySelector('.nav-item[data-page="reports"]');
+        reportsNav.hidden = !permissions.has("conduct:view_all");
+        const incidentsNav = document.querySelector('.nav-item[data-page="incidents"]');
+        const canViewConduct = permissions.has("conduct:view_all") ||
+          permissions.has("conduct:view_own") ||
+          permissions.has("conduct:view_group");
+        incidentsNav.hidden = !canViewConduct;
+        const rolesPage = document.getElementById("page-roles");
+        const activePage = document.querySelector(".page-section.active");
+        if (activePage && (
+          (activePage.id === "page-students" && !permissions.has("students:list")) ||
+          (activePage.id === "page-reports" && !permissions.has("conduct:view_all")) ||
+          (activePage.id === "page-incidents" && !canViewConduct) ||
+          (activePage === rolesPage && !permissions.has("roles:manage")) ||
+          (activePage.id === "page-points" && pointsNav.hidden)
+        )) {
+          setPage("dashboard", "Tổng quan");
+        }
+      }
+
+      async function loadRoleRequests(classId) {
+        const loadVersion = ++roleRequestLoadVersion;
+        const response = await apiRequest(`/api/classes/${encodeURIComponent(classId)}/role-requests`);
+        if (loadVersion !== roleRequestLoadVersion || activeClass?.id !== classId) return;
+        const labels = {
+          ROLE_CLASS_LEADER: "Lớp trưởng",
+          ROLE_CLASS_DEPUTY: "Lớp phó",
+          ROLE_GROUP_LEADER: "Tổ trưởng/nhóm trưởng"
+        };
+        document.getElementById("role-request-list").innerHTML = response.requests.length
+          ? response.requests.map((request) => {
+            const actions = request.status === "pending"
+              ? `<div class="role-request-actions">
+                  <button class="button primary" data-role-request="${escapeHtml(request.id)}" data-decision="approved">Phê duyệt</button>
+                  <button class="button" data-role-request="${escapeHtml(request.id)}" data-decision="rejected">Từ chối</button>
+                </div>`
+              : `<span class="badge ${request.status === "approved" ? "verified" : "pending"}">${request.status === "approved" ? "Đã phê duyệt" : "Đã từ chối"}</span>`;
+            return `<article class="role-request-card">
+              <div>
+                <div class="panel-title">${escapeHtml(request.requesterName)} · ${escapeHtml(labels[request.requestedRole] || request.requestedRole)}</div>
+                <div class="role-request-reason">${escapeHtml(request.reason || "Không ghi kèm lý do.")}</div>
+              </div>
+              ${actions}
+            </article>`;
+          }).join("")
+          : `<div class="empty-state">Chưa có yêu cầu vai trò.</div>`;
+      }
+
+      function rosterOptions(selectedId = "", includeEmpty = true) {
+        const empty = includeEmpty ? `<option value="">Chưa phân công</option>` : "";
+        return empty + leadershipData.students.map((student) =>
+          `<option value="${escapeHtml(student.memberId)}" ${student.memberId === selectedId ? "selected" : ""}>${escapeHtml(student.fullName)} · ${escapeHtml(student.studentNumber || "")}</option>`
+        ).join("");
+      }
+
+      function filteredGroupStudents() {
+        const query = document.getElementById("group-member-search").value.trim().toLocaleLowerCase("vi");
+        return leadershipData.students.filter((student) =>
+          (!(student.groupIds || []).length || (editingGroupId && student.groupIds.includes(editingGroupId))) &&
+          `${student.fullName} ${student.studentNumber || ""}`.toLocaleLowerCase("vi").includes(query)
+        );
+      }
+
+      function renderGroupMemberList() {
+        const matches = filteredGroupStudents();
+        const list = document.getElementById("group-member-list");
+        list.innerHTML = matches.length ? matches.map((student) => `<label class="group-member-option">
+          <input type="checkbox" data-group-member="${escapeHtml(student.memberId)}" ${selectedGroupMemberIds.has(student.memberId) ? "checked" : ""} />
+          <span>${escapeHtml(student.fullName)}</span><small>${escapeHtml(student.studentNumber || "")}</small>
+        </label>`).join("") : `<div class="empty-state">Không tìm thấy học sinh phù hợp hoặc các em đã được xếp vào tổ/nhóm khác.</div>`;
+        document.getElementById("group-member-count").textContent = `Đã chọn ${selectedGroupMemberIds.size} học sinh`;
+      }
+
+      function renderTeacherStudentManagement() {
+        const rows = document.getElementById("teacher-managed-students");
+        if (!rows) return;
+        rows.innerHTML = leadershipData.students.length ? leadershipData.students.map((student) => {
+          const groupIds = student.groupIds || [];
+          const groupNames = groupIds.map((id) => leadershipData.groups.find((group) => group.id === id)?.name).filter(Boolean);
+          const selectedGroupId = groupIds[0] || "";
+          const options = [`<option value="" ${selectedGroupId ? "" : "selected"}>Chưa xếp tổ</option>`,
+            ...leadershipData.groups.map((group) => `<option value="${escapeHtml(group.id)}" ${group.id === selectedGroupId ? "selected" : ""}>${escapeHtml(group.name)}</option>`)
+          ].join("");
+          return `<tr><td><strong>${escapeHtml(student.fullName)}</strong><br><small>${escapeHtml(student.studentNumber || "")}</small></td>
+            <td>${groupNames.length ? escapeHtml(groupNames.join(", ")) : "Chưa xếp tổ"}</td>
+            <td><select data-target-group="${escapeHtml(student.memberId)}" aria-label="Tổ mới của ${escapeHtml(student.fullName)}">${options}</select></td>
+            <td><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="button" type="button" data-move-student="${escapeHtml(student.memberId)}">Chuyển</button><button class="button" type="button" data-remove-student="${escapeHtml(student.studentNumber || "")}">Xóa khỏi lớp</button></div></td></tr>`;
+        }).join("") : `<tr><td colspan="4">Lớp chưa có học sinh.</td></tr>`;
+      }
+
+      function updateGroupLeaderOptions(selectedLeaderId = document.getElementById("group-leader").value) {
+        const selectedStudents = leadershipData.students.filter((student) => selectedGroupMemberIds.has(student.memberId));
+        document.getElementById("group-leader").innerHTML = selectedStudents.length
+          ? `<option value="">Chọn tổ trưởng/nhóm trưởng</option>` + selectedStudents.map((student) =>
+              `<option value="${escapeHtml(student.memberId)}" ${student.memberId === selectedLeaderId ? "selected" : ""}>${escapeHtml(student.fullName)} · ${escapeHtml(student.studentNumber || "")}</option>`
+            ).join("")
+          : `<option value="">Chọn thành viên trước</option>`;
+      }
+
+      async function loadLeadership(classId) {
+        const version = classLoadVersion;
+        const result = await apiRequest(`/api/classes/${encodeURIComponent(classId)}/leadership`);
+        if (version !== classLoadVersion || activeClass?.id !== classId) return;
+        leadershipData = result;
+        selectedGroupMemberIds = new Set();
+        editingGroupId = null;
+        document.getElementById("group-member-search").value = "";
+        const leader = leadershipData.students.find((student) => student.roles.includes("ROLE_CLASS_LEADER"));
+        const deputy = leadershipData.students.find((student) => student.roles.includes("ROLE_CLASS_DEPUTY"));
+        document.getElementById("teacher-leadership-panel").hidden = false;
+        document.getElementById("class-leader-select").innerHTML = rosterOptions(leader?.memberId || "");
+        document.getElementById("class-deputy-select").innerHTML = rosterOptions(deputy?.memberId || "");
+        renderGroupMemberList();
+        updateGroupLeaderOptions("");
+        document.getElementById("managed-groups").innerHTML = leadershipData.groups.length
+          ? leadershipData.groups.map((group) => {
+            const leaderStudent = group.members.find((student) => student.memberId === group.leaderMemberId);
+            const names = group.members.map((student) => escapeHtml(student.fullName)).join(", ");
+            return `<article class="role-request-card"><div><div class="panel-title">${escapeHtml(group.name)}${leaderStudent ? ` · Trưởng nhóm: ${escapeHtml(leaderStudent.fullName)}` : ""}</div><div class="role-request-reason">${names || "Chưa có thành viên"}</div></div><button class="button" type="button" data-edit-group="${escapeHtml(group.id)}">Chỉnh sửa</button></article>`;
+          }).join("")
+          : `<div class="empty-state">Chưa có tổ/nhóm.</div>`;
+        renderTeacherStudentManagement();
+      }
+
+      async function restoreSession() {
+        try {
+          await enterApp(await apiRequest("/api/session"));
+        } catch (error) {
+          document.getElementById("app-shell").hidden = true;
+          document.getElementById("auth-screen").hidden = false;
+          if (error.status !== 401) setLoginMessage(error.message);
+        }
+      }
+
+      function showToast(message) {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(showToast.timeout);
+        showToast.timeout = setTimeout(() => toast.classList.remove("show"), 2800);
+      }
+
+      function avatar(student, sizeClass = "") {
+        const contents = student.avatarData ? `<img src="${escapeHtml(student.avatarData)}" alt="">` : escapeHtml(initials(student.name));
+        return `<div class="avatar ${sizeClass}" style="background:${escapeHtml(student.color || "#e3e8f5")}">${contents}</div>`;
+      }
+
+      function renderPersonalAvatar(dataUrl = currentUser?.avatarData) {
+        const preview = document.getElementById("profile-avatar-preview");
+        if (!preview || !currentUser) return;
+        preview.innerHTML = dataUrl ? `<img src="${escapeHtml(dataUrl)}" alt="Ảnh đại diện">` : escapeHtml(initials(currentUser.fullName));
+      }
+
+      function studentCell(student) {
+        return `<div class="student-cell">${avatar(student)}<div><div class="student-name">${escapeHtml(student.name)}</div><div class="student-class">${escapeHtml(student.id)} · ${escapeHtml(student.className)}</div></div></div>`;
+      }
+
+      function incidentRow(event, detailed = false) {
+        const student = byId(event.studentId);
+        if (!student) return "";
+        const positive = event.kind === "positive";
+        const status = event.status === "verified" ? "Đã xác minh" : "Chờ xác minh";
+        const points = `${positive ? "+" : "−"}${Number(event.points)}`;
+
+        if (detailed) {
+          const verification = activeClass?.permissions.includes("conduct:verify")
+            ? `<button class="badge ${event.status}" data-verify="${escapeHtml(event.id)}" title="Cập nhật trạng thái" style="cursor:pointer">${status}</button>`
+            : `<span class="badge ${event.status}">${status}</span>`;
+          return `<tr><td>${studentCell(student)}</td><td><div class="event-title" title="${escapeHtml(event.description || event.title)}">${escapeHtml(event.title)}</div><div style="font-size:9px;color:#9aa5b6;margin-top:3px">${escapeHtml(event.source || "—")}</div></td><td><span class="badge ${positive ? "positive" : "negative"}">${positive ? "Điểm cộng" : "Điểm trừ"}</span></td><td><span class="points ${positive ? "positive" : "negative"}">${points}</span></td><td>${formatDate(event.date)}</td><td>${escapeHtml(event.recorder || "—")}</td><td>${event.evidence ? `<span title="${escapeHtml(event.evidence)}">📎 ${escapeHtml(event.evidence)}</span>` : "—"}</td><td>${verification}</td></tr>`;
+        }
+
+        return `<tr><td>${studentCell(student)}</td><td><div class="event-title">${escapeHtml(event.title)}</div></td><td><span class="points ${positive ? "positive" : "negative"}">${points}</span></td><td>${formatDate(event.date)}</td><td><span class="badge ${event.status}">${status}</span></td></tr>`;
+      }
+
+      function renderDashboard() {
+        const positiveTitle = document.getElementById("total-positive")?.closest(".stat-card")?.querySelector(".stat-top");
+        const negativeTitle = document.getElementById("total-negative")?.closest(".stat-card")?.querySelector(".stat-top");
+        if (positiveTitle && negativeTitle) {
+          const positiveIcon = positiveTitle.querySelector(".stat-icon")?.outerHTML || "";
+          const negativeIcon = negativeTitle.querySelector(".stat-icon")?.outerHTML || "";
+          positiveTitle.innerHTML = `&#272;i&#7875;m c&#7897;ng tu&#7847;n n&#224;y ${positiveIcon}`;
+          negativeTitle.innerHTML = `&#272;i&#7875;m tr&#7915; tu&#7847;n n&#224;y ${negativeIcon}`;
+        }
+        const currentWeekEvents = getCurrentWeekEvents();
+
+        document.getElementById("total-students").textContent = students.length;
+        document.getElementById("total-positive").textContent = currentWeekEvents.filter((event) => event.kind === "positive").reduce((sum, event) => sum + Number(event.points), 0);
+        document.getElementById("total-negative").textContent = currentWeekEvents.filter((event) => event.kind === "negative").reduce((sum, event) => sum + Number(event.points), 0);
+
+        const pending = incidents.filter((event) => event.status === "pending").length;
+        document.getElementById("total-pending").textContent = pending;
+        document.getElementById("pending-count").textContent = pending;
+
+        const recent = [...incidents].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
+        document.getElementById("recent-table").innerHTML = recent.length ? recent.map((event) => incidentRow(event)).join("") : `<tr><td colspan="5" class="empty-state">Chưa có ghi nhận nào.</td></tr>`;
+
+        renderChart();
+      }
+
+      function renderChart() {
+        const chart = document.getElementById("chart");
+        const labels = [];
+        const today = new Date();
+
+        for (let offset = 5; offset >= 0; offset--) {
+          const date = new Date(today.getFullYear(), today.getMonth() - offset, 1);
+          labels.push({ month: date.getMonth(), year: date.getFullYear(), label: date.toLocaleDateString("vi-VN", { month: "short" }) });
+        }
+
+        const values = labels.map((item) => {
+          const monthEvents = incidents.filter((event) => {
+            const date = new Date(event.date + "T00:00:00");
+            return date.getMonth() === item.month && date.getFullYear() === item.year;
+          });
+
+          return {
+            positive: monthEvents.filter((event) => event.kind === "positive").reduce((sum, event) => sum + Number(event.points), 0),
+            negative: monthEvents.filter((event) => event.kind === "negative").reduce((sum, event) => sum + Number(event.points), 0)
+          };
+        });
+
+        const max = Math.max(1, ...values.flatMap((value) => [value.positive, value.negative]));
+        chart.innerHTML = values.map((value, index) => `
+          <div class="chart-col">
+            <div class="bar-pair">
+              <div class="bar plus" style="height:${Math.max(4, (value.positive / max) * 112)}px" title="${value.positive} điểm cộng"></div>
+              <div class="bar minus" style="height:${Math.max(4, (value.negative / max) * 112)}px" title="${value.negative} điểm trừ"></div>
+            </div>
+            <div class="chart-label">${labels[index].label}</div>
+          </div>
+        `).join("");
+      }
+
+      function renderIncidents() {
+        const query = document.getElementById("incident-search").value.trim().toLocaleLowerCase("vi");
+        const kind = document.getElementById("type-filter").value;
+        const status = document.getElementById("status-filter").value;
+
+        const filtered = [...incidents].filter((event) => {
+          const student = byId(event.studentId);
+          const text = `${event.title} ${event.description || ""} ${student ? student.name : ""} ${student ? student.id : ""}`.toLocaleLowerCase("vi");
+          return (!query || text.includes(query)) && (kind === "all" || event.kind === kind) && (status === "all" || event.status === status);
+        }).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+
+        document.getElementById("incident-table").innerHTML = filtered.length ? filtered.map((event) => incidentRow(event, true)).join("") : `<tr><td colspan="8" class="empty-state">Không tìm thấy sự việc phù hợp.</td></tr>`;
+      }
+
+      function studentTotals(studentId) {
+        const events = incidents.filter((event) => event.studentId === studentId);
+        return {
+          plus: events.filter((event) => event.kind === "positive").reduce((sum, event) => sum + Number(event.points), 0),
+          minus: events.filter((event) => event.kind === "negative").reduce((sum, event) => sum + Number(event.points), 0),
+          count: events.length
+        };
+      }
+
+      function getCurrentWeekEvents() {
+        const periodStartUs = Number(weeklyScoreState.currentPeriodStartedAtUs) || 0;
+        const weekStart = weeklyScoreState.currentWeekStart;
+        return incidents.filter((event) => {
+          if (event.status !== "verified" || event.date > dateInputValue(new Date())) return false;
+          return periodStartUs
+            ? Number(event.createdAtUs) > periodStartUs
+            : (!weekStart || event.date >= weekStart);
+        });
+      }
+
+      function studentWeeklyTotals(studentId) {
+        const events = getCurrentWeekEvents().filter((event) => event.studentId === studentId);
+        return {
+          plus: events.filter((event) => event.kind === "positive").reduce((sum, event) => sum + Number(event.points), 0),
+          minus: events.filter((event) => event.kind === "negative").reduce((sum, event) => sum + Number(event.points), 0),
+          count: events.length
+        };
+      }
+
+      function renderPersonalWeeklyHistory() {
+        const panel = document.getElementById("student-weekly-history-panel");
+        const studentNumber = currentUser?.studentNumber;
+        panel.hidden = !studentNumber || !activeClass;
+        if (panel.hidden) return;
+
+        const current = studentWeeklyTotals(studentNumber);
+        document.getElementById("personal-week-positive").textContent = `+${current.plus}`;
+        document.getElementById("personal-week-negative").textContent = `−${current.minus}`;
+        document.getElementById("personal-week-total").textContent = `${current.plus - current.minus}`;
+        const history = weeklyScoreState.history.filter((entry) => entry.studentNumber === studentNumber);
+        document.getElementById("student-weekly-history-rows").innerHTML = history.length
+          ? history.map((entry) => `<tr><td>${escapeHtml(entry.academicYear || "")}</td><td>${formatDate(entry.weekStart)} &ndash; ${formatDate(entry.weekEnd)}</td><td><span class="points positive">+${Number(entry.positivePoints) || 0}</span></td><td><span class="points negative">&minus;${Number(entry.negativePoints) || 0}</span></td><td><span class="points ${(Number(entry.totalPoints) || 0) < 0 ? "negative" : "positive"}">${(Number(entry.totalPoints) || 0) > 0 ? "+" : ""}${Number(entry.totalPoints) || 0}</span></td></tr>`).join("")
+          : `<tr><td colspan="5" class="empty-state">Ch&#432;a c&#243; tu&#7847;n n&#224;o &#273;&#432;&#7907;c reset v&#224; l&#432;u l&#7883;ch s&#7917;.</td></tr>`;
+      }
+
+      function renderStudents() {
+        const query = document.getElementById("student-search").value.trim().toLocaleLowerCase("vi");
+        const filtered = students.filter((student) => `${student.name} ${student.id}`.toLocaleLowerCase("vi").includes(query));
+
+        document.getElementById("student-grid").innerHTML = filtered.length ? filtered.map((student) => {
+          const totals = studentWeeklyTotals(student.id);
+          return `<article class="student-card" data-profile="${escapeHtml(student.id)}">
+            <div class="student-card-head">${avatar(student)}<div><div class="student-name">${escapeHtml(student.name)}</div><div class="student-class">${escapeHtml(student.id)} · ${escapeHtml(student.className)}</div></div></div>
+            <div class="student-balance">
+              <div><div class="balance-label">Điểm cộng</div><div class="balance-value" style="color: var(--green)">+${totals.plus}</div></div>
+              <div><div class="balance-label">Điểm trừ</div><div class="balance-value" style="color: var(--red)">−${totals.minus}</div></div>
+              <div><div class="balance-label">Sự việc</div><div class="balance-value">${totals.count}</div></div>
+            </div>
+          </article>`;
+        }).join("") : `<div class="empty-state" style="grid-column: 1 / -1;">Không tìm thấy học sinh phù hợp.</div>`;
+        document.querySelectorAll("#student-grid .student-card .balance-label").forEach((label, index) => {
+          label.innerHTML = ["&#272;i&#7875;m c&#7897;ng tu&#7847;n", "&#272;i&#7875;m tr&#7915; tu&#7847;n", "S&#7921; vi&#7879;c tu&#7847;n"][index % 3];
+        });
+      }
+
+      function renderReports() {
+        const plus = incidents.filter((event) => event.kind === "positive").reduce((sum, event) => sum + Number(event.points), 0);
+        const minus = incidents.filter((event) => event.kind === "negative").reduce((sum, event) => sum + Number(event.points), 0);
+
+        document.getElementById("report-events").textContent = incidents.length;
+        document.getElementById("report-plus").textContent = plus;
+        document.getElementById("report-minus").textContent = minus;
+
+        document.getElementById("report-table").innerHTML = students.map((student) => {
+          const totals = studentTotals(student.id);
+          return `<tr><td>${studentCell(student)}</td><td><span class="points positive">+${totals.plus}</span></td><td><span class="points negative">−${totals.minus}</span></td><td>${totals.count}</td></tr>`;
+        }).join("");
+      }
+
+      function renderAll() {
+        renderDashboard();
+        renderIncidents();
+        renderStudents();
+        renderReports();
+        renderForum();
+        renderConductCategories();
+        const select = document.getElementById("incident-students");
+        select.innerHTML = `<option value="">Chọn học sinh...</option>` + students.map((student) => `<option value="${escapeHtml(student.id)}">${escapeHtml(student.name)} · ${escapeHtml(student.id)}</option>`).join("");
+        const categorySelect = document.getElementById("incident-category");
+        categorySelect.innerHTML = conductCategories.length
+          ? `<option value="">Chọn mức điểm...</option>` + conductCategories.map((category) => {
+              const sign = category.kind === "positive" ? "+" : "−";
+              return `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)} · ${sign}${Number(category.points)} điểm</option>`;
+            }).join("")
+          : `<option value="">Chưa có mức điểm; liên hệ giáo viên</option>`;
+      }
+
+      function renderConductCategories() {
+        const list = document.getElementById("conduct-category-list");
+        if (!list) return;
+        list.innerHTML = conductCategories.length ? conductCategories.map((category) => {
+          const positive = category.kind === "positive";
+          return `<article class="role-request-card"><div><div class="panel-title">${escapeHtml(category.name)}</div><div class="role-request-reason">${positive ? "Điểm cộng" : "Điểm trừ"}</div></div><span class="points ${positive ? "positive" : "negative"}">${positive ? "+" : "−"}${Number(category.points)} điểm</span></article>`;
+        }).join("") : `<div class="empty-state">Lớp chưa có mức điểm. Giáo viên hãy thêm danh mục ở đây.</div>`;
+      }
+
+      function renderForum() {
+        const container = document.getElementById("forum-posts");
+        container.innerHTML = forumPosts.length ? forumPosts.map((post) => {
+          const scores = Array.isArray(post.scoreSnapshot) ? post.scoreSnapshot : [];
+          const rows = scores.map((student, index) => {
+            const total = Number(student.totalPoints) || 0;
+            const totalClass = total < 0 ? "negative" : "positive";
+            return `<tr><td>${index + 1}</td><td>${escapeHtml(student.fullName)}</td><td><span class="points positive">+${Number(student.positivePoints) || 0}</span></td><td><span class="points negative">−${Number(student.negativePoints) || 0}</span></td><td><span class="points ${totalClass}">${total > 0 ? "+" : ""}${total}</span></td></tr>`;
+          }).join("");
+          const message = post.message ? `<div style="padding:0 18px 16px;white-space:pre-line;">${escapeHtml(post.message)}</div>` : "";
+          return `<article class="panel">
+            <div class="panel-head"><div><div class="panel-title">${escapeHtml(post.title)}</div><div class="panel-subtitle">${escapeHtml(post.groupName || "Tổng kết lớp")} · ${formatDate(post.weekStart)} – ${formatDate(post.weekEnd)} · Đăng bởi ${escapeHtml(post.authorName)}</div></div></div>
+            ${message}
+            <div class="table-wrap"><table><thead><tr><th>Hạng</th><th>Học sinh</th><th>Điểm cộng</th><th>Điểm trừ</th><th>Tổng tuần</th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="empty-state">Chưa có học sinh trong lớp.</td></tr>`}</tbody></table></div>
+          </article>`;
+        }).join("") : `<div class="panel empty-state" style="padding:24px;">Chưa có tổng kết tuần nào. Giáo viên sẽ đăng bảng điểm tại đây.</div>`;
+      }
+
+      function dateInputValue(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
+
+      function setDefaultForumWeek() {
+        const today = new Date();
+        const daysSinceMonday = (today.getDay() + 6) % 7;
+        const weekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceMonday);
+        const weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6);
+        document.getElementById("forum-week-start").value = dateInputValue(weekStart);
+        document.getElementById("forum-week-end").value = dateInputValue(weekEnd);
+      }
+
+      function openProfile(studentId) {
+        const student = byId(studentId);
+        if (!student) return;
+
+        const totals = studentWeeklyTotals(student.id);
+        document.getElementById("profile-content").innerHTML = `
+          <div class="profile-summary">
+            ${avatar(student)}
+            <div>
+              <div class="profile-name" id="profile-name">${escapeHtml(student.name)}</div>
+              <div class="profile-meta">${escapeHtml(student.id)} · Lớp ${escapeHtml(student.className)}</div>
+            </div>
+          </div>
+          <div class="profile-stats">
+            <div class="profile-stat"><span>&#272;i&#7875;m c&#7897;ng tu&#7847;n n&#224;y</span><strong style="color: var(--green)">+${totals.plus}</strong></div>
+            <div class="profile-stat"><span>&#272;i&#7875;m tr&#7915; tu&#7847;n n&#224;y</span><strong style="color: var(--red)">&minus;${totals.minus}</strong></div>
+            <div class="profile-stat"><span>S&#7921; vi&#7879;c tu&#7847;n n&#224;y</span><strong>${totals.count}</strong></div>
+          </div>
+        `;
+
+        const history = incidents.filter((event) => event.studentId === student.id).sort((a, b) => b.date.localeCompare(a.date));
+        document.getElementById("profile-history").innerHTML = history.length ? history.map((event) => `<tr><td>${escapeHtml(event.title)}</td><td><span class="points ${event.kind === "positive" ? "positive" : "negative"}">${event.kind === "positive" ? "+" : "−"}${Number(event.points)}</span></td><td>${formatDate(event.date)}</td><td><span class="badge ${event.status}">${event.status === "verified" ? "Đã xác minh" : "Chờ xác minh"}</span></td></tr>`).join("") : `<tr><td colspan="4" class="empty-state">Chưa có ghi nhận nào.</td></tr>`;
+
+        const publishedWeeklyScores = forumPosts.flatMap((post) => {
+          const scores = Array.isArray(post.scoreSnapshot) ? post.scoreSnapshot : [];
+          const hasUniqueClassName = students.filter((classStudent) => classStudent.name === student.name).length === 1;
+          const scoreIndex = scores.findIndex((entry) =>
+            (student.memberId && entry.memberId === student.memberId) ||
+            (!entry.memberId && hasUniqueClassName && entry.fullName === student.name)
+          );
+          return scoreIndex < 0 ? [] : [{ post, score: scores[scoreIndex] }];
+        }).sort((a, b) => b.post.weekStart.localeCompare(a.post.weekStart) || (a.post.groupName || "").localeCompare(b.post.groupName || ""));
+        document.getElementById("profile-weekly-posted-scores").innerHTML = publishedWeeklyScores.length
+          ? publishedWeeklyScores.map(({ post, score }) => `<tr><td>${formatDate(post.weekStart)} &ndash; ${formatDate(post.weekEnd)}</td><td>${post.groupName ? escapeHtml(post.groupName) : "&#x54;&#7893;ng k&#7871;t l&#7899;p"}</td><td><span class="points positive">+${Number(score.positivePoints) || 0}</span></td><td><span class="points negative">&minus;${Number(score.negativePoints) || 0}</span></td><td><span class="points ${(Number(score.totalPoints) || 0) < 0 ? "negative" : "positive"}">${(Number(score.totalPoints) || 0) > 0 ? "+" : ""}${Number(score.totalPoints) || 0}</span></td></tr>`).join("")
+          : `<tr><td colspan="5" class="empty-state">Ch&#432;a c&#243; b&#7843;ng &#273;i&#7875;m tu&#7847;n n&#224;o &#273;&#432;&#7907;c &#273;&#259;ng l&#234;n di&#7877;n &#273;&#224;n cho h&#7885;c sinh n&#224;y.</td></tr>`;
+
+        document.getElementById("profile-modal").classList.add("open");
+      }
+
+      function openPointAwardModal(studentId) {
+        const student = byId(studentId);
+        if (!student || !activeClass?.roles.includes("ROLE_GROUP_LEADER")) return;
+        pointAwardStudentId = studentId;
+        pointAwardSaving = false;
+        document.getElementById("point-award-student-name").textContent = `${student.name} · ${student.id}`;
+        document.getElementById("point-award-status").textContent = "";
+        renderPointAwardCategories();
+        document.getElementById("point-award-modal").classList.add("open");
+      }
+
+      function closePointAwardModal() {
+        document.getElementById("point-award-modal").classList.remove("open");
+        pointAwardStudentId = null;
+      }
+
+      function renderPointAwardCategories() {
+        const container = document.getElementById("point-award-categories");
+        container.innerHTML = conductCategories.length ? conductCategories.map((category) => {
+          const positive = category.kind === "positive";
+          return `<button class="award-category-chip" type="button" draggable="true" data-award-category="${escapeHtml(category.id)}" ${pointAwardSaving ? "disabled" : ""}>
+            <span>${escapeHtml(category.name)}<small>${positive ? "Điểm cộng" : "Điểm trừ"} · kéo thả hoặc chạm để ghi nhận</small></span>
+            <strong class="points ${positive ? "positive" : "negative"}">${positive ? "+" : "−"}${Number(category.points)}</strong>
+          </button>`;
+        }).join("") : `<div class="empty-state">Giáo viên chưa tạo mức điểm cho lớp này.</div>`;
+      }
+
+      async function recordGroupPoint(categoryId) {
+        const student = byId(pointAwardStudentId);
+        const category = conductCategories.find((item) => item.id === categoryId);
+        if (!student || !category || !activeClass || pointAwardSaving) return;
+        pointAwardSaving = true;
+        document.getElementById("point-award-status").textContent = "Đang ghi nhận điểm…";
+        renderPointAwardCategories();
+        try {
+          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/conduct-records`, {
+            method: "POST",
+            body: {
+              studentId: student.id,
+              categoryId: category.id,
+              description: "Ghi nhận theo mức điểm cố định của lớp.",
+              date: dateInputValue(new Date()),
+              source: "Tổ trưởng/nhóm trưởng"
+            }
+          });
+          closePointAwardModal();
+          await loadClassData();
+          const sign = category.kind === "positive" ? "+" : "−";
+          showToast(`${result.status === "verified" ? "Đã ghi nhận" : "Đã gửi chờ xác minh"}: ${student.name} ${sign}${Number(category.points)} điểm.`);
+        } catch (error) {
+          pointAwardSaving = false;
+          document.getElementById("point-award-status").textContent = error.message;
+          renderPointAwardCategories();
+        }
+      }
+
+      function setPage(page, label) {
+        document.querySelectorAll(".page-section").forEach((section) => {
+          const active = section.id === `page-${page}`;
+          section.classList.toggle("active", active);
+          section.hidden = !active;
+        });
+        document.querySelectorAll(".nav-item[data-page]").forEach((item) => item.classList.toggle("active", item.dataset.page === page));
+        document.getElementById("breadcrumb-title").textContent = label;
+        const personalButton = document.getElementById("personal-page-open");
+        personalButton.textContent = page === "personal" ? (currentUser?.isAdmin ? "Quản trị" : "Quay lại lớp") : "Cá nhân";
+      }
+
+      function exportCsv() {
+        const rows = [["Mã học sinh", "Họ và tên", "Lý do", "Loại điểm", "Điểm", "Ngày xảy ra", "Nguồn thông tin", "Người ghi nhận", "Minh chứng", "Trạng thái"]];
+
+        incidents.forEach((event) => {
+          const student = byId(event.studentId);
+          if (!student) return;
+          rows.push([student.id, student.name, event.title, event.kind === "positive" ? "Điểm cộng" : "Điểm trừ", `${event.kind === "positive" ? "+" : "-"}${event.points}`, event.date, event.source || "", event.recorder || "", event.evidence || "", event.status === "verified" ? "Đã xác minh" : "Chờ xác minh"]);
+        });
+
+        const csv = "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `classtrack-bao-cao-${(activeClass?.name || "lop-hoc").replace(/[^a-z0-9_-]/gi, "-")}.csv`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        showToast("Đã tải báo cáo CSV.");
+      }
+
+      function openIncidentModal() {
+        if (!conductCategories.length) {
+          showToast("Giáo viên chưa thêm mức điểm cho lớp này.");
+          return;
+        }
+        document.getElementById("incident-date").value = new Date().toISOString().slice(0, 10);
+        document.getElementById("incident-modal").classList.add("open");
+        document.getElementById("incident-students").focus();
+      }
+
+      function closeIncidentModal() {
+        document.getElementById("incident-modal").classList.remove("open");
+      }
+
+      document.querySelectorAll(".nav-item[data-page]").forEach((item) => item.addEventListener("click", () => setPage(item.dataset.page, item.querySelector("span").textContent)));
+      document.getElementById("personal-page-open").addEventListener("click", async () => {
+        if (document.getElementById("page-personal").classList.contains("active")) {
+          if (currentUser?.isAdmin) {
+            setPage("admin", "Quản trị tài khoản");
+            await loadAdminOverview();
+          } else if (activeClass) {
+            setPage("dashboard", "Tổng quan");
+          } else {
+            setPage("no-class", "Tạo lớp học");
+          }
+          return;
+        }
+        renderPersonalAvatar();
+        setPage("personal", "Cá nhân");
+      });
+      document.getElementById("profile-avatar-file").addEventListener("change", (event) => {
+        const file = event.target.files?.[0];
+        const error = document.getElementById("profile-avatar-error");
+        error.hidden = true;
+        if (!file) return renderPersonalAvatar();
+        if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 1024 * 1024) {
+          error.textContent = "Chọn ảnh PNG, JPEG hoặc WebP có dung lượng tối đa 1 MB.";
+          error.hidden = false;
+          event.target.value = "";
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => renderPersonalAvatar(String(reader.result));
+        reader.readAsDataURL(file);
+      });
+      document.getElementById("profile-avatar-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = document.getElementById("profile-avatar-file").files?.[0];
+        const error = document.getElementById("profile-avatar-error");
+        const submit = document.getElementById("profile-avatar-submit");
+        error.hidden = true;
+        if (!file) {
+          error.textContent = "Vui lòng chọn ảnh đại diện.";
+          error.hidden = false;
+          return;
+        }
+        submit.disabled = true;
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(new Error("Không thể đọc tệp ảnh."));
+            reader.readAsDataURL(file);
+          });
+          const result = await apiRequest("/api/account/avatar", { method: "PUT", body: { dataUrl } });
+          currentUser.avatarData = result.avatarData;
+          document.querySelectorAll(".top-user .avatar, .user > .avatar").forEach((element) => {
+            element.innerHTML = `<img src="${escapeHtml(result.avatarData)}" alt="">`;
+          });
+          renderPersonalAvatar();
+          showToast("Đã cập nhật ảnh đại diện.");
+        } catch (uploadError) {
+          error.textContent = uploadError.message;
+          error.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+      document.getElementById("profile-password-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const error = document.getElementById("profile-password-error");
+        const submit = document.getElementById("profile-password-submit");
+        const newPassword = document.getElementById("profile-new-password").value;
+        error.hidden = true;
+        if (newPassword !== document.getElementById("profile-confirm-password").value) {
+          error.textContent = "Mật khẩu mới nhập lại không khớp.";
+          error.hidden = false;
+          return;
+        }
+        submit.disabled = true;
+        try {
+          await apiRequest("/api/account/password", { method: "PATCH", body: {
+            currentPassword: document.getElementById("profile-current-password").value,
+            newPassword
+          }});
+          event.target.reset();
+          if (currentUser.mustChangePassword) {
+            await enterApp(await apiRequest("/api/session"));
+            showToast("Đã đổi mật khẩu. Bạn có thể tiếp tục sử dụng ClassTrack.");
+          } else {
+            showToast("Đã đổi mật khẩu.");
+          }
+        } catch (passwordError) {
+          error.textContent = passwordError.message;
+          error.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+      document.querySelectorAll(".add-incident").forEach((button) => button.addEventListener("click", openIncidentModal));
+      document.getElementById("weekly-score-reset").addEventListener("click", async () => {
+        if (!activeClass?.roles.includes("ROLE_GROUP_LEADER") || !weeklyScoreState.canReset) return;
+        if (!confirm(`${document.getElementById("weekly-score-reset-status").textContent}\nTiếp tục reset điểm tuần?`)) return;
+        const button = document.getElementById("weekly-score-reset");
+        button.disabled = true;
+        try {
+          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/weekly-score-reset`, { method: "POST", body: {} });
+          await loadClassData();
+          showToast(`Đã lưu điểm tuần cho ${result.studentCount} học sinh và bắt đầu tuần mới.`);
+        } catch (error) {
+          showToast(error.message);
+          button.disabled = !weeklyScoreState.canReset;
+        }
+      });
+      document.getElementById("weekly-summary-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submit = event.submitter;
+        if (submit) submit.disabled = true;
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/forum/weekly-summary`, {
+            method: "POST",
+            body: {
+              weekStart: document.getElementById("forum-week-start").value,
+              weekEnd: document.getElementById("forum-week-end").value,
+              groupId: document.getElementById("forum-group").value,
+              message: document.getElementById("forum-week-message").value.trim()
+            }
+          });
+          document.getElementById("forum-week-message").value = "";
+          await loadClassData();
+          setPage("forum", "Diễn đàn lớp");
+          showToast("Đã tính và đăng/cập nhật tổng kết điểm tuần lên diễn đàn.");
+        } catch (error) {
+          showToast(error.message);
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+      document.getElementById("conduct-category-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submit = event.submitter;
+        if (submit) submit.disabled = true;
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/conduct-categories`, {
+            method: "POST",
+            body: {
+              name: document.getElementById("conduct-category-name").value.trim(),
+              kind: document.getElementById("conduct-category-kind").value,
+              points: Number(document.getElementById("conduct-category-points").value)
+            }
+          });
+          event.target.reset();
+          document.getElementById("conduct-category-points").value = 1;
+          await loadClassData();
+          showToast("Đã thêm mức điểm riêng cho lớp.");
+        } catch (error) {
+          showToast(error.message);
+        } finally {
+          if (submit) submit.disabled = false;
+        }
+      });
+      document.querySelectorAll("[data-goto]").forEach((button) => button.addEventListener("click", () => {
+        setPage(button.dataset.goto, "Sự việc");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }));
+      document.getElementById("close-modal").addEventListener("click", closeIncidentModal);
+      document.getElementById("cancel-modal").addEventListener("click", closeIncidentModal);
+      document.getElementById("incident-modal").addEventListener("click", (event) => { if (event.target.id === "incident-modal") closeIncidentModal(); });
+
+      document.getElementById("login-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setLoginMessage();
+        const submit = document.getElementById("login-submit");
+        submit.disabled = true;
+        try {
+          await apiRequest("/api/auth/login", {
+            method: "POST",
+            body: {
+              username: document.getElementById("login-username").value,
+              password: document.getElementById("login-password").value
+            }
+          });
+          await enterApp(await apiRequest("/api/session"));
+          document.getElementById("login-form").reset();
+        } catch (error) {
+          if (error.status === 0 || error.isNetworkError) {
+            document.getElementById("app-shell").hidden = true;
+            document.getElementById("auth-screen").hidden = false;
+          }
+          setLoginMessage(error.message);
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      document.getElementById("logout-button").addEventListener("click", async () => {
+        try {
+          await apiRequest("/api/auth/logout", { method: "POST" });
+          clearGeneratedAccounts();
+          currentUser = null;
+          classMemberships = [];
+          activeClass = null;
+          classLoadVersion++;
+          roleRequestLoadVersion++;
+          students = [];
+          incidents = [];
+          conductCategories = [];
+          forumPosts = [];
+          forumGroups = [];
+          document.getElementById("app-shell").hidden = true;
+          document.getElementById("auth-screen").hidden = false;
+          setLoginMessage();
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+
+      document.getElementById("class-switcher").addEventListener("change", async (event) => {
+        activeClass = classMemberships.find((item) => item.id === event.target.value) || null;
+        updateClassPresentation();
+        try {
+          await loadClassData();
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+
+      document.getElementById("role-request-open").addEventListener("click", () => {
+        document.getElementById("role-request-modal").classList.add("open");
+      });
+      document.getElementById("role-request-close").addEventListener("click", () => {
+        document.getElementById("role-request-modal").classList.remove("open");
+      });
+      document.getElementById("role-request-cancel").addEventListener("click", () => {
+        document.getElementById("role-request-modal").classList.remove("open");
+      });
+      document.getElementById("role-request-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/role-requests`, {
+            method: "POST",
+            body: {
+              role: document.getElementById("requested-role").value,
+              reason: document.getElementById("role-request-reason").value.trim()
+            }
+          });
+          event.target.reset();
+          document.getElementById("role-request-modal").classList.remove("open");
+          showToast("Đã gửi yêu cầu. Vai trò chưa có hiệu lực cho đến khi giáo viên phê duyệt.");
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+      document.getElementById("role-request-list").addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-role-request]");
+        if (!button) return;
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/role-requests/${encodeURIComponent(button.dataset.roleRequest)}`, {
+            method: "PATCH",
+            body: { decision: button.dataset.decision }
+          });
+          await loadRoleRequests(activeClass.id);
+          showToast(button.dataset.decision === "approved" ? "Đã phê duyệt yêu cầu vai trò." : "Đã từ chối yêu cầu vai trò.");
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+
+      document.getElementById("leadership-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/leadership`, {
+            method: "PUT",
+            body: { assignments: [
+              { role: "ROLE_CLASS_LEADER", memberId: document.getElementById("class-leader-select").value },
+              { role: "ROLE_CLASS_DEPUTY", memberId: document.getElementById("class-deputy-select").value }
+            ] }
+          });
+          await loadLeadership(activeClass.id);
+          showToast("Đã lưu chức vụ lớp.");
+        } catch (error) { showToast(error.message); }
+      });
+
+      document.getElementById("group-member-search").addEventListener("input", renderGroupMemberList);
+      document.getElementById("group-member-list").addEventListener("change", (event) => {
+        const checkbox = event.target.closest("[data-group-member]");
+        if (!checkbox) return;
+        const memberId = checkbox.dataset.groupMember;
+        if (checkbox.checked) selectedGroupMemberIds.add(memberId);
+        else selectedGroupMemberIds.delete(memberId);
+        const currentLeaderId = document.getElementById("group-leader").value;
+        renderGroupMemberList();
+        updateGroupLeaderOptions(currentLeaderId);
+      });
+      document.getElementById("group-select-visible").addEventListener("click", () => {
+        filteredGroupStudents().forEach((student) => selectedGroupMemberIds.add(student.memberId));
+        renderGroupMemberList();
+        updateGroupLeaderOptions();
+      });
+      document.getElementById("group-clear-selection").addEventListener("click", () => {
+        selectedGroupMemberIds.clear();
+        renderGroupMemberList();
+        updateGroupLeaderOptions("");
+      });
+      document.getElementById("managed-groups").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-edit-group]");
+        const group = leadershipData.groups.find((item) => item.id === button?.dataset.editGroup);
+        if (!group) return;
+        editingGroupId = group.id;
+        document.getElementById("group-name").value = group.name;
+        selectedGroupMemberIds = new Set(group.members.map((member) => member.memberId));
+        renderGroupMemberList();
+        updateGroupLeaderOptions(group.leaderMemberId || "");
+        document.getElementById("group-form").scrollIntoView({ behavior: "smooth", block: "center" });
+        document.getElementById("group-name").focus({ preventScroll: true });
+      });
+      document.getElementById("teacher-managed-students").addEventListener("click", async (event) => {
+        const moveButton = event.target.closest("[data-move-student]");
+        const removeButton = event.target.closest("[data-remove-student]");
+        try {
+          if (moveButton) {
+            const memberId = moveButton.dataset.moveStudent;
+            const groupId = document.querySelector(`[data-target-group="${memberId}"]`)?.value || null;
+            const student = leadershipData.students.find((item) => item.memberId === memberId);
+            if (!student) return;
+            const existingGroupIds = student.groupIds || [];
+            if ((groupId && existingGroupIds.length === 1 && existingGroupIds[0] === groupId) || (!groupId && !existingGroupIds.length)) {
+              showToast("Học sinh đã ở đúng trạng thái tổ/nhóm này.");
+              return;
+            }
+            await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/group-members/${encodeURIComponent(memberId)}`, {
+              method: "PATCH", body: { groupId }
+            });
+            await loadClassData();
+            showToast(groupId ? "Đã chuyển học sinh sang tổ/nhóm mới." : "Đã đưa học sinh ra khỏi tổ/nhóm.");
+          } else if (removeButton) {
+            const studentNumber = removeButton.dataset.removeStudent;
+            const student = leadershipData.students.find((item) => item.studentNumber === studentNumber);
+            if (!student || !window.confirm(`Xóa ${student.fullName} khỏi lớp? Lịch sử điểm rèn luyện sẽ được giữ lại.`)) return;
+            await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students/${encodeURIComponent(studentNumber)}`, { method: "DELETE" });
+            await loadClassData();
+            showToast(`Đã xóa ${student.fullName} khỏi lớp.`);
+          }
+        } catch (error) { showToast(error.message); }
+      });
+
+      document.getElementById("group-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const memberIds = [...selectedGroupMemberIds];
+        if (!memberIds.length) {
+          showToast("Hãy chọn ít nhất một học sinh vào tổ/nhóm.");
+          return;
+        }
+        if (!document.getElementById("group-leader").value) {
+          showToast("Hãy chọn tổ trưởng/nhóm trưởng trong số thành viên đã chọn.");
+          return;
+        }
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/groups`, {
+            method: "POST",
+            body: {
+              ...(editingGroupId ? { groupId: editingGroupId } : {}),
+              name: document.getElementById("group-name").value.trim(),
+              memberIds,
+              leaderMemberId: document.getElementById("group-leader").value
+            }
+          });
+          event.target.reset();
+          editingGroupId = null;
+          document.getElementById("group-member-search").value = "";
+          selectedGroupMemberIds.clear();
+          renderGroupMemberList();
+          updateGroupLeaderOptions("");
+          await loadLeadership(activeClass.id);
+          showToast("Đã tạo tổ/nhóm và phân công trưởng nhóm.");
+        } catch (error) { showToast(error.message); }
+      });
+
+      document.getElementById("incident-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = document.getElementById("incident-evidence").files[0];
+        if (file && file.size > 10 * 1024 * 1024) {
+          showToast("Tệp minh chứng vượt quá giới hạn 10 MB.");
+          return;
+        }
+
+        try {
+          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/conduct-records`, {
+            method: "POST",
+            body: {
+              studentId: document.getElementById("incident-students").value,
+              categoryId: document.getElementById("incident-category").value,
+              description: document.getElementById("incident-description").value.trim(),
+              date: document.getElementById("incident-date").value,
+              source: document.getElementById("incident-source").value.trim(),
+              evidenceName: file ? file.name : ""
+            }
+          });
+          event.target.reset();
+          closeIncidentModal();
+          await loadClassData();
+          showToast(result.status === "verified"
+            ? "Đã cộng/trừ điểm cố định cho thành viên trong nhóm."
+            : "Đã lưu ghi nhận. Sự việc đang chờ giáo viên xác minh.");
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+
+      document.getElementById("incident-search").addEventListener("input", renderIncidents);
+      document.getElementById("type-filter").addEventListener("change", renderIncidents);
+      document.getElementById("status-filter").addEventListener("change", renderIncidents);
+      document.getElementById("student-search").addEventListener("input", renderStudents);
+
+      document.getElementById("student-account-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("student-account-error");
+        errorBox.hidden = true;
+        try {
+          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`, {
+            method: "POST",
+            body: { fullName: document.getElementById("new-student-name").value }
+          });
+          rememberGeneratedStudentAccounts([result.account]);
+          event.target.reset();
+          await loadClassData();
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        }
+      });
+
+      document.getElementById("bulk-student-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("bulk-student-error");
+        const status = document.getElementById("bulk-student-status");
+        const submit = document.getElementById("bulk-student-submit");
+        const rows = document.getElementById("bulk-student-list").value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const studentsToCreate = rows;
+        errorBox.hidden = true;
+        status.textContent = "";
+        submit.disabled = true;
+        try {
+          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students/bulk`, {
+            method: "POST",
+            body: { students: studentsToCreate }
+          });
+          const generatedCount = rememberGeneratedStudentAccounts(result.accounts);
+          event.target.reset();
+          status.textContent = `Đã tạo ${result.accounts.length} tài khoản mới; tệp hiện có ${generatedCount} tài khoản của lớp này.`;
+          await loadClassData();
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+      document.getElementById("download-student-accounts").addEventListener("click", downloadStudentAccounts);
+
+      document.getElementById("admin-account-filter-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try { await loadAdminAccounts(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-account-rows").addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-account-action]");
+        if (!button) return;
+        const account = adminAccountCache.find((item) => item.id === button.dataset.accountId);
+        if (!account) return;
+        const action = button.dataset.accountAction;
+        try {
+          if (action === "permissions") {
+            adminPermissionTargetId = account.id;
+            document.getElementById("admin-permissions-title").textContent = `Phân quyền: ${account.fullName} (${account.username})`;
+            document.querySelectorAll("[data-admin-permission]").forEach((checkbox) => {
+              checkbox.checked = (account.adminPermissions || []).includes(checkbox.value);
+            });
+            document.getElementById("admin-permissions-panel").hidden = false;
+            document.getElementById("admin-reset-result").hidden = true;
+            document.getElementById("admin-permissions-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+            return;
+          }
+          if (action === "super") {
+            const isSuperAdmin = button.dataset.nextSuper === "true";
+            if (!window.confirm(`${isSuperAdmin ? "Cấp" : "Thu hồi"} vai trò Super Admin ${isSuperAdmin ? "cho" : "của"} ${account.fullName}?`)) return;
+            await apiRequest(`/api/admin/accounts/${encodeURIComponent(account.id)}/super-admin`, { method: "PATCH", body: { isSuperAdmin } });
+            showToast("Đã cập nhật vai trò Super Admin.");
+          } else if (action === "reset") {
+            if (!window.confirm(`Tạo mật khẩu tạm cho ${account.fullName}? Các phiên hiện tại sẽ bị thu hồi.`)) return;
+            const result = await apiRequest(`/api/admin/accounts/${encodeURIComponent(account.id)}/password-reset`, { method: "POST", body: {} });
+            document.getElementById("admin-temporary-password").value = result.temporaryPassword;
+            document.getElementById("admin-reset-result").hidden = false;
+            document.getElementById("admin-permissions-panel").hidden = true;
+            document.getElementById("admin-reset-result").scrollIntoView({ behavior: "smooth", block: "center" });
+            showToast(`Đã tạo mật khẩu tạm cho ${result.username}.`);
+          } else if (action === "revoke") {
+            if (!window.confirm(`Thu hồi tất cả phiên đăng nhập của ${account.fullName}?`)) return;
+            const result = await apiRequest(`/api/admin/accounts/${encodeURIComponent(account.id)}/revoke-sessions`, { method: "POST", body: {} });
+            showToast(`Đã thu hồi ${result.revokedCount} phiên.`);
+          } else {
+            const isActive = action === "unlock";
+            if (!window.confirm(`${isActive ? "Mở khóa" : "Khóa"} tài khoản ${account.username}?`)) return;
+            await apiRequest(`/api/admin/accounts/${encodeURIComponent(account.id)}/status`, { method: "PATCH", body: { isActive } });
+            showToast(isActive ? "Đã mở khóa tài khoản." : "Đã khóa tài khoản và thu hồi các phiên.");
+          }
+          await loadAdminAccounts();
+          if (hasAdminPermission("audit:view")) await loadAdminAudit();
+          if (action === "super") await loadAdminOverview();
+        } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-permissions-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!adminPermissionTargetId) return;
+        const permissions = [...document.querySelectorAll("[data-admin-permission]:checked")].map((checkbox) => checkbox.value);
+        try {
+          await apiRequest(`/api/admin/accounts/${encodeURIComponent(adminPermissionTargetId)}/admin-permissions`, { method: "PUT", body: { permissions } });
+          document.getElementById("admin-permissions-panel").hidden = true;
+          adminPermissionTargetId = null;
+          await loadAdminAccounts();
+          await loadAdminAudit();
+          showToast("Đã lưu phân quyền admin.");
+        } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-copy-temporary-password").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(document.getElementById("admin-temporary-password").value);
+          showToast("Đã sao chép mật khẩu tạm.");
+        } catch { showToast("Không thể sao chép tự động; hãy chọn và sao chép mật khẩu."); }
+      });
+
+      document.getElementById("teacher-account-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("teacher-account-error");
+        const submit = document.getElementById("create-teacher-submit");
+        const status = document.getElementById("teacher-account-status");
+        errorBox.hidden = true;
+        status.textContent = "";
+        submit.disabled = true;
+        try {
+          const teachers = document.getElementById("new-teacher-names").value.split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
+          if (!teachers.length || teachers.length > 50) throw new Error("Nhập từ 1 đến 50 họ tên giáo viên.");
+          const result = await apiRequest("/api/admin/teachers", { method: "POST", body: {
+            teachers
+          }});
+          event.target.reset();
+          generatedTeacherAccounts.push(...result.accounts);
+          document.getElementById("download-teacher-accounts").hidden = false;
+          status.textContent = `Đã tạo ${result.accounts.length} tài khoản. Tải tệp để lưu tên đăng nhập và mật khẩu; thông tin này chỉ có trong phiên hiện tại.`;
+          downloadTeacherAccounts();
+          showToast(`Đã tạo ${result.accounts.length} tài khoản giáo viên.`);
+          await loadAdminOverview();
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+      document.getElementById("download-teacher-accounts").addEventListener("click", downloadTeacherAccounts);
+
+      document.getElementById("create-class-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("create-class-error");
+        const submit = document.getElementById("create-class-submit");
+        errorBox.hidden = true;
+        submit.disabled = true;
+        try {
+          await apiRequest("/api/classes", { method: "POST", body: {
+            name: document.getElementById("new-class-name").value,
+            academicYear: document.getElementById("new-class-year").value
+          }});
+          event.target.reset();
+          await enterApp(await apiRequest("/api/session"));
+          showToast("Đã tạo lớp trống. Thầy cô có thể tự thêm học sinh vào lớp.");
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      document.getElementById("admin-account-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("admin-account-error");
+        errorBox.hidden = true;
+        try {
+          const result = await apiRequest("/api/admin/admins", { method: "POST", body: {
+            fullName: document.getElementById("new-admin-name").value,
+            username: document.getElementById("new-admin-username").value,
+            password: document.getElementById("new-admin-password").value
+          }});
+          event.target.reset();
+          showToast(`Đã tạo tài khoản admin ${result.username}.`);
+          await loadAdminOverview();
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        }
+      });
+
+      document.getElementById("student-grid").addEventListener("click", (event) => {
+        const card = event.target.closest("[data-profile]");
+        if (!card) return;
+        if (activeClass?.roles.includes("ROLE_GROUP_LEADER")) {
+          openPointAwardModal(card.dataset.profile);
+        } else {
+          openProfile(card.dataset.profile);
+        }
+      });
+
+      document.getElementById("point-award-categories").addEventListener("click", (event) => {
+        const category = event.target.closest("[data-award-category]");
+        if (category) recordGroupPoint(category.dataset.awardCategory);
+      });
+      document.getElementById("point-award-categories").addEventListener("dragstart", (event) => {
+        const category = event.target.closest("[data-award-category]");
+        if (!category || !event.dataTransfer) return;
+        event.dataTransfer.setData("text/plain", category.dataset.awardCategory);
+        event.dataTransfer.effectAllowed = "copy";
+      });
+      const pointAwardDropzone = document.getElementById("point-award-dropzone");
+      pointAwardDropzone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        pointAwardDropzone.classList.add("drag-over");
+      });
+      pointAwardDropzone.addEventListener("dragleave", (event) => {
+        if (!pointAwardDropzone.contains(event.relatedTarget)) pointAwardDropzone.classList.remove("drag-over");
+      });
+      pointAwardDropzone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        pointAwardDropzone.classList.remove("drag-over");
+        const categoryId = event.dataTransfer?.getData("text/plain");
+        if (categoryId) recordGroupPoint(categoryId);
+      });
+      document.getElementById("close-point-award").addEventListener("click", closePointAwardModal);
+      document.getElementById("point-award-modal").addEventListener("click", (event) => {
+        if (event.target.id === "point-award-modal") closePointAwardModal();
+      });
+
+      document.getElementById("incident-table").addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-verify]");
+        if (!button || !activeClass) return;
+        const record = incidents.find((item) => item.id === button.dataset.verify);
+        if (!record) return;
+        const status = record.status === "verified" ? "pending" : "verified";
+        try {
+          await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/conduct-records/${encodeURIComponent(record.id)}/verify`, {
+            method: "PATCH",
+            body: { status }
+          });
+          await loadClassData();
+          showToast(status === "verified" ? "Đã xác minh sự việc." : "Đã chuyển về trạng thái chờ xác minh.");
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+
+      document.querySelectorAll("[data-close-profile]").forEach((button) => button.addEventListener("click", () => document.getElementById("profile-modal").classList.remove("open")));
+      document.getElementById("profile-modal").addEventListener("click", (event) => { if (event.target.id === "profile-modal") event.currentTarget.classList.remove("open"); });
+
+      document.getElementById("export-report").addEventListener("click", exportCsv);
+      document.getElementById("export-report-2").addEventListener("click", exportCsv);
+      document.getElementById("export-students").addEventListener("click", downloadStudentAccounts);
+
+      document.getElementById("notifications").addEventListener("click", () => {
+        const count = incidents.filter((item) => item.status === "pending").length;
+        showToast(count ? `Có ${count} sự việc đang chờ xác minh.` : "Không có thông báo mới.");
+      });
+
+      document.getElementById("class-info").addEventListener("click", () => {
+        if (activeClass) showToast(`Đang xem dữ liệu lớp ${activeClass.name} · Năm học ${activeClass.academicYear}.`);
+      });
+      setTheme(activeTheme);
+      setDefaultForumWeek();
+      document.getElementById("settings-button").addEventListener("click", () => setTheme(activeTheme === "dark" ? "light" : "dark"));
+      document.getElementById("auth-theme-toggle").addEventListener("click", () => setTheme(activeTheme === "dark" ? "light" : "dark"));
+
+      window.addEventListener("offline", () => {
+        showToast("Mất kết nối mạng. Các thao tác mới sẽ được giữ nguyên trên màn hình và có thể thử lại sau.");
+      });
+      window.addEventListener("online", async () => {
+        showToast("Đã có kết nối mạng trở lại. Đang đồng bộ dữ liệu…");
+        if (!currentUser) return;
+        try {
+          await apiRequest("/api/session", { retry: false });
+          if (currentUser.isAdmin) {
+            if (hasAdminPermission("reports:view")) await loadAdminOverview();
+            if (hasAdminPermission("accounts:manage")) await loadAdminAccounts();
+            if (hasAdminPermission("audit:view")) await loadAdminAudit();
+          } else if (activeClass) {
+            await loadClassData();
+          }
+          showToast("Đã đồng bộ dữ liệu mới nhất.");
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+
+      restoreSession();
+    </script>
+  </body>
+</html>
