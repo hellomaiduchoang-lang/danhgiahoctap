@@ -21,6 +21,26 @@ If you already installed Node.js and PostgreSQL yourself, use the manual configu
 
 Pushing this repository to Git stores the source code; it does not run the website. GitHub Pages cannot run this project's Node.js API or PostgreSQL database, so the login and data features will return 404 if only `index.html` is published there.
 
+### Deploy from GitHub with Render
+
+The root `render.yaml` defines a paid Node.js web service and PostgreSQL database. It runs API commands from `api/` while keeping the repository root available so the server can also serve `index.html` from the same origin, which is required for login cookies. Review Render's current pricing before deploying; the Blueprint creates billable resources.
+
+1. Push the repository to GitHub.
+2. In Render, choose **New > Blueprint**, connect the repository, and select the branch to deploy. Review the paid web and database resources before confirming.
+3. Wait for the first deployment to finish, then open the service URL shown by Render. Do not use the GitHub Pages URL for the working app.
+4. In the paid Render service's **Shell**, run this from the directory containing `api/package.json` (if the shell starts at the repository root, first run `cd api`) to create the first administrator:
+
+   ```sh
+   ADMIN_USERNAME=admin ADMIN_FULL_NAME="ClassTrack Admin" ADMIN_PASSWORD='use-a-unique-long-password' npm run db:create-super-admin
+   ```
+
+   Replace the example password with a unique secret. Do not put it in `render.yaml`, GitHub, or source files. The script refuses to create a second Super Admin.
+5. Sign in at the Render service URL. The service runs database migrations on startup and `/api/health` is used as its health check.
+
+Keep GitHub Pages disabled for this app, or use it only for static documentation. A `github.io` URL cannot host the Node API or PostgreSQL database.
+
+### Other Node.js hosts
+
 Deploy the whole project to a Node.js host with a PostgreSQL database, and serve the page and `/api/*` routes from the same origin. Configure the service with `api` as its working directory, `npm ci` as its install command, and `npm run db:migrate && npm start` as its start command. The server uses the host-provided `PORT` and listens on the public container interface in production.
 
 Set these environment variables in the hosting provider's secret/configuration panel:
