@@ -4,6 +4,9 @@ import { pool } from "./db.js";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COOKIE_NAME = process.env.NODE_ENV === "production" ? "__Host-classtrack_session" : "classtrack_session";
+const COOKIE_SAME_SITE = process.env.NODE_ENV === "production" && process.env.FRONTEND_ORIGIN
+  ? "None"
+  : "Strict";
 
 function tokenHash(token) {
   return createHash("sha256").update(token).digest();
@@ -25,13 +28,13 @@ export function setSessionCookie(response, token) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   response.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`
+    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=${COOKIE_SAME_SITE}; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`
   );
 }
 
 export function clearSessionCookie(response) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  response.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+  response.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=${COOKIE_SAME_SITE}; Max-Age=0${secure}`);
 }
 
 export async function login(username, password) {
