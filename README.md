@@ -1,6 +1,21 @@
 # ClassTrack
 
-ClassTrack is a Vietnamese class-management workspace. The current implementation is Phase 1: a same-origin Node.js/Express API and PostgreSQL persistence for authentication, class membership, class-scoped roles and permissions, role requests, and conduct records. The existing conduct dashboard now reads and writes server data. Learning content, assignments, exams, document library, forum, and notifications remain for later phases. It does not include live classrooms, livestreams, voice/video calls, or live exams.
+ClassTrack is a Vietnamese class-management workspace. The root Express server serves `public/index.html` and implements database-backed authentication using the shared PostgreSQL schema in `api/db/migrations`. A fuller ClassTrack API remains under `api/`.
+
+## Minimal root server
+
+The root `package.json` is the entry point used by `render.yaml`. It serves the existing `public/index.html`, provides `GET /health`, and supports `POST /api/auth/login`, `GET /api/session`, and `POST /api/auth/logout`. Login uses the frontend's `username` and `password` fields, bcrypt password hashes, PostgreSQL-backed opaque sessions, and an HttpOnly cookie. Other unimplemented API endpoints return HTTP 501 with `NOT_IMPLEMENTED`.
+
+Run locally from the repository root:
+
+```sh
+npm install
+npm run db:migrate
+npm run db:seed
+npm start
+```
+
+Set `DATABASE_URL`, `ADMIN_USERNAME`, and `ADMIN_PASSWORD` in the environment before running the migration and seed commands. The seed creates the initial Super Admin account and requires a password of 12–72 UTF-8 bytes. `db:migrate` applies the existing SQL migration set under `api/db/migrations`; `db:seed` can be rerun for the already-seeded Super Admin and refuses to create a second one. The frontend also calls APIs for classes and students, conduct records and categories, forums, weekly scores, role requests, leadership and groups, account settings, and administration. Those routes still return `NOT_IMPLEMENTED`.
 
 ## Local setup on Windows
 
@@ -19,39 +34,39 @@ If you already installed Node.js and PostgreSQL yourself, use the manual configu
 
 ## Publishing and deployment
 
-Pushing this repository to Git stores the source code; it does not run the website. GitHub Pages can serve the static frontend, but the Node.js API and PostgreSQL database must run on a backend host.
+Pushing this repository to Git stores the source code; it does not run the website. Deploy the Node.js API, PostgreSQL database, and static frontend together as one Render Web Service so the browser and API share an origin.
 
 ### Deploy from GitHub with Render
 
-The root `render.yaml` defines a paid Node.js web service and PostgreSQL database. The Blueprint allows requests from the GitHub Pages origin `https://hellomaiduchoang-lang.github.io`; `index.html` routes GitHub Pages API requests to `https://classtrack.onrender.com`. Review Render's current pricing before deploying; the Blueprint creates billable resources.
+The root `render.yaml` defines a paid Node.js web service and PostgreSQL database in the same region. The web service runs the root package with `npm install` and `npm start`, and checks `/health`. The PostgreSQL resource is retained in the Blueprint, but the minimal root server does not yet connect to it or run migrations. Review Render's current pricing before deploying; the Blueprint creates billable resources.
 
 1. Push the repository to GitHub.
 2. In Render, choose **New > Blueprint**, connect the repository, and select the branch to deploy. Review the paid web and database resources before confirming.
-3. Wait for the first deployment to finish. Confirm the service URL is `https://classtrack.onrender.com`; if Render assigned a different URL, update `productionApiOrigin` in `index.html` to that exact HTTPS origin. Confirm `https://<backend-host>/api/health` returns `{"status":"ok"}`.
-4. In the paid Render service's **Shell**, run this from the directory containing `api/package.json` (if the shell starts at the repository root, first run `cd api`) to create the first administrator:
+3. Wait for the first deployment to finish. Open the Render service URL. Confirm `/health` returns `{"ok":true}` and `/` serves the page. Sign-in and other data APIs remain unavailable in this minimal root server; do not create production accounts or treat a healthy `/health` response as proof that authentication works.
+4. To deploy the fuller PostgreSQL-backed implementation in `api/` instead, configure the Render service root directory as `api`, install with `npm install`, run `npm run db:migrate` as a pre-deploy step, and use `npm start`. Do not switch a service with existing production data without first reviewing its deployment settings and database.
 
-   ```sh
-   ADMIN_USERNAME=admin ADMIN_FULL_NAME="ClassTrack Admin" ADMIN_PASSWORD='use-a-unique-long-password' npm run db:create-super-admin
-   ```
+If using the `api/` implementation, create its first administrator from that service's **Shell**:
 
-   Replace the example password with a unique secret. Do not put it in `render.yaml`, GitHub, or source files. The script refuses to create a second Super Admin.
-5. The service runs database migrations on startup. Keep GitHub Pages enabled, wait for its deployment, and sign in at `https://hellomaiduchoang-lang.github.io`.
+```sh
+ADMIN_USERNAME=admin ADMIN_FULL_NAME="ClassTrack Admin" ADMIN_PASSWORD='use-a-unique-long-password' npm run db:create-super-admin
+```
 
-The API enables credentialed CORS for the configured frontend origin and uses `SameSite=None; Secure` session cookies when `FRONTEND_ORIGIN` is configured in production. Some browsers block third-party cookies regardless of this setting, so serving the frontend and API on the same origin (or behind a same-origin reverse proxy) is more reliable for sign-in.
+Replace the example password with a unique secret. Do not put it in `render.yaml`, GitHub, or source files. The script refuses to create a second Super Admin. Do not run `npm run db:seed` against a production database; it inserts demo class data.
 
 ### Other Node.js hosts
 
-Deploy the whole project to a Node.js host with a PostgreSQL database, and serve the page and `/api/*` routes from the same origin. Configure the service with `api` as its working directory, `npm ci` as its install command, and `npm run db:migrate && npm start` as its start command. The server uses the host-provided `PORT` and listens on the public container interface in production.
+Deploy the whole repository to a Node.js host with a PostgreSQL database, and serve `public/index.html` and `/api/*` from the same origin. Install dependencies with `npm --prefix api ci`, run `npm --prefix api run db:migrate` as a pre-deploy step, and start with `npm --prefix api start`. The server uses the host-provided `PORT` and listens on `0.0.0.0`.
 
 Set these environment variables in the hosting provider's secret/configuration panel:
 
 - `NODE_ENV=production`
 - `DATABASE_URL` to the managed PostgreSQL connection string
-- `APP_ORIGIN` to the exact public HTTPS origin, such as `https://classtrack.example.com` (Render's `RENDER_EXTERNAL_URL` is also supported)
+- `APP_ORIGIN` to the exact public HTTPS origin if the host does not provide `RENDER_EXTERNAL_URL`
+- `PORT` is assigned by Render; do not hard-code it in Render settings
 
-For a separate frontend, set `FRONTEND_ORIGIN` to its exact HTTPS origin and set `productionApiOrigin` in `index.html` to the backend's public HTTPS origin. The server allows credentialed CORS only for configured origins and sets `SameSite=None; Secure` cookies in production when `FRONTEND_ORIGIN` is configured. Some browsers block third-party cookies; a same-origin reverse proxy is more reliable. In development, frontend pages served from any HTTP port on `localhost` or `127.0.0.1` are allowed with credentialed CORS.
+The Blueprint generates a `SESSION_SECRET` environment value, but the current session implementation uses random opaque tokens whose hashes are stored in PostgreSQL and does not read that variable. Production cookies are HttpOnly, Secure, and SameSite=Lax. CORS is not needed for this same-origin setup; the API does not allow wildcard origins.
 
-After the first deployment has applied migrations, create the initial administrator once from the service shell in the `api` directory. Set `ADMIN_USERNAME`, `ADMIN_FULL_NAME`, and a unique `ADMIN_PASSWORD` of 12–72 UTF-8 bytes as temporary environment secrets, then run `npm run db:create-super-admin`. Remove the temporary password secret afterward. This command refuses to run if a Super Admin already exists. Do not use `npm run db:seed` for a real deployment; it creates demo class data. Never commit `.env`, database credentials, or administrator passwords to Git.
+After the first deployment has applied migrations, create the initial administrator once from the Render Shell in the service root directory (`api`). Supply `ADMIN_USERNAME`, `ADMIN_FULL_NAME`, and a unique `ADMIN_PASSWORD` of 12–72 UTF-8 bytes only for that command, then run `npm run db:create-super-admin`. This command refuses to run if a Super Admin already exists. Never run `npm run db:seed` on a real deployment; it creates demo class data. Never commit `.env`, database credentials, or administrator passwords to Git.
 
 ### Manual setup
 
@@ -77,7 +92,7 @@ The seed command creates the demo class `10A1`, its sample students and conduct 
 
 Migrations in `api/db/migrations` are additive and tracked in `schema_migrations`. Phase 1 includes users, classes, class memberships with multiple roles per class, groups, permissions, role requests, conduct records, evidence metadata, auth sessions, and audit logs. Each class-scoped API checks the authenticated user's active membership and effective permissions on the server. Students receive only their own conduct records; group leaders receive records for their groups; teacher access is class-scoped.
 
-`api/src/server.js` serves this page and the API from the same origin in the Render setup. The server stores only a hash of each opaque session token; cookies are HttpOnly and use `SameSite=Strict` for same-origin deployments or `SameSite=None; Secure` when production `FRONTEND_ORIGIN` is configured. Mutating requests require an allowed origin. Set `NODE_ENV=production`, use HTTPS, and use a properly managed database secret before deployment.
+`api/src/server.js` serves `public/index.html` and the API from the same origin. The server stores only a hash of each opaque session token; production cookies are HttpOnly, Secure, and SameSite=Lax. Mutating requests require an allowed origin. Set `NODE_ENV=production`, use HTTPS, and use a properly managed database secret before deployment.
 
 Role-request APIs are `POST /api/classes/:classId/role-requests`, `GET /api/classes/:classId/role-requests`, and teacher-only `PATCH /api/classes/:classId/role-requests/:requestId`. Teachers manage additional per-member permissions through `PUT /api/classes/:classId/members/:memberId/permissions`. These actions are audited; role approvals and permission grants are checked against class membership on the server.
 

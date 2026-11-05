@@ -4,14 +4,14 @@ services:
     runtime: node
     plan: starter
     region: singapore
-    buildCommand: npm --prefix api ci
-    startCommand: npm --prefix api run db:migrate && npm --prefix api start
-    healthCheckPath: /api/health
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: FRONTEND_ORIGIN
-        value: https://hellomaiduchoang-lang.github.io
+      - key: SESSION_SECRET
+        generateValue: true
       - key: DATABASE_URL
         fromDatabase:
           name: classtrack-db

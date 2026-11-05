@@ -1687,14 +1687,10 @@
 
     <script>
       const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-      const isGitHubPages = window.location.hostname.endsWith(".github.io");
-      const localApiOrigin = `http://${window.location.hostname || "127.0.0.1"}:3000`;
-      const productionApiOrigin = "https://classtrack.onrender.com";
-      const apiOrigin = isGitHubPages
-        ? productionApiOrigin
-        : window.location.protocol === "file:" || (isLocalHost && window.location.port !== "3000")
-          ? localApiOrigin
-          : "";
+      const localApiOrigin = "http://127.0.0.1:3000";
+      const apiOrigin = window.location.protocol === "file:" || (isLocalHost && window.location.port !== "3000")
+        ? localApiOrigin
+        : "";
 
       let students = [];
       let incidents = [];
@@ -1860,16 +1856,21 @@
         }
         const result = response.status === 204 ? null : await response.json().catch(() => ({}));
         if (!response.ok) {
-          const message = response.status === 404 && path === "/api/session"
-            ? (isLocalHost
-              ? "Không tìm thấy ClassTrack API tại cổng 3000. Hãy khởi động backend rồi tải lại trang."
-              : isGitHubPages
-                ? "Không tìm thấy API ClassTrack trên Render. Hãy kiểm tra productionApiOrigin trong index.html có khớp URL dịch vụ backend hay không."
-                : "ClassTrack API không có trong bản triển khai này. Hãy triển khai Node.js API và PostgreSQL, rồi mở trang từ cùng origin với API.")
-            : response.status === 405
-            ? (isGitHubPages
-              ? "Backend ClassTrack không hỗ trợ endpoint này. Hãy xác nhận API đang chạy bản mới nhất."
-              : `Máy chủ không hỗ trợ ${method} ${path}. Trang ClassTrack cần được phục vụ cùng backend trên cùng origin.`)
+          const statusMessage = response.status === 401
+            ? "Chưa xác thực (401)"
+            : response.status === 403
+              ? "Không có quyền thực hiện thao tác này (403)"
+              : response.status === 404
+                ? path === "/api/session" && isLocalHost
+                  ? "Không tìm thấy ClassTrack API tại cổng 3000. Hãy khởi động backend rồi tải lại trang."
+                  : `Không tìm thấy API hoặc tài nguyên (404): ${method} ${path}.`
+                : response.status === 405
+                  ? `Backend không hỗ trợ ${method} ${path} (405). Hãy kiểm tra route và HTTP method.`
+                  : null;
+          const message = statusMessage
+            ? result?.error && response.status !== 404
+              ? `${statusMessage}: ${result.error}`
+              : statusMessage
             : result?.error || `Request failed (${response.status}) for ${method} ${path}.`;
           const error = new Error(message);
           error.status = response.status;

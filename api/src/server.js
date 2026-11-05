@@ -21,13 +21,14 @@ import {
 } from "./auth.js";
 
 const app = express();
+export { app };
 const port = Number(process.env.PORT || 3000);
+const host = "0.0.0.0";
 const configuredPublicOrigin = process.env.APP_ORIGIN || process.env.RENDER_EXTERNAL_URL;
 if (process.env.NODE_ENV === "production" && !configuredPublicOrigin) {
   throw new Error("Set APP_ORIGIN to the public HTTPS origin of this deployment.");
 }
 const appOrigin = new URL(configuredPublicOrigin || `http://127.0.0.1:${port}`).origin;
-const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
 const frontendOrigins = new Set([appOrigin]);
 for (const value of (process.env.FRONTEND_ORIGIN || "").split(",")) {
   const candidate = value.trim();
@@ -43,6 +44,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 const isDevelopment = process.env.NODE_ENV !== "production";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const publicDirectory = path.join(root, "public");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 app.disable("x-powered-by");
@@ -95,7 +97,10 @@ app.use((request, response, next) => {
   next();
 });
 app.use(express.json({ limit: "2mb" }));
-app.use(authenticate);
+app.get("/health", (_request, response) => {
+  response.json({ ok: true });
+});
+app.use("/api", authenticate);
 app.use("/api", (_request, response, next) => {
   response.setHeader("Cache-Control", "no-store");
   next();
@@ -1008,7 +1013,7 @@ app.post("/api/classes/:classId/conduct-records", requireAuthentication, require
 
 app.get("/api/classes/:classId/weekly-scores", requireAuthentication,
   classPermission("classes:read"), asyncRoute(async (request, response) => {
-    if (request.user.isAdmin) return response.status(403).json({ error: "Admin khÃ´ng Ä‘Æ°á»£c xem há»“ sÆ¡ Ä‘iá»ƒm cá»§a há»c sinh." });
+    if (request.user.isAdmin) return response.status(403).json({ error: "Admin không được xem hồ sơ điểm của học sinh." });
     const state = await pool.query(
       `SELECT COALESCE(
                 (SELECT archived_at::DATE FROM class_weekly_point_periods
@@ -1077,7 +1082,7 @@ app.post("/api/classes/:classId/weekly-score-reset", requireAuthentication, requ
       const { week_start: weekStart, week_end: weekEnd, previous_archive_at: previousArchiveAt, reset_today: resetToday } = period.rows[0];
       if (resetToday) {
         await client.query("ROLLBACK");
-        return response.status(409).json({ error: "Tuáº§n Ä‘iá»ƒm Ä‘Ã£ Ä‘Æ°á»£c chÃ¶t hÃ´m nay." });
+        return response.status(409).json({ error: "Tuần điểm đã được chốt hôm nay." });
       }
       const savedPeriod = await client.query(
         `INSERT INTO class_weekly_point_periods
@@ -1724,8 +1729,9 @@ app.use("/api", (_request, response) => {
 
 app.get(["/", "/index.html"], (_request, response) => {
   response.setHeader("Cache-Control", "no-cache, must-revalidate");
-  response.sendFile(path.join(root, "index.html"));
+  response.sendFile(path.join(publicDirectory, "index.html"));
 });
+app.use(express.static(publicDirectory, { index: false }));
 
 app.use((error, _request, response, _next) => {
   console.error("Request failed:", error);
@@ -1738,23 +1744,27 @@ app.use((error, _request, response, _next) => {
   });
 });
 
-const server = app.listen(port, host, () => {
-  console.info(`ClassTrack listening at ${process.env.NODE_ENV === "production" ? appOrigin : `http://127.0.0.1:${port}`}`);
-});
-server.on("error", (error) => {
-  if (error.code === "EADDRINUSE") {
-    console.error(`Port ${port} is already in use. Stop the other process or configure a different PORT before starting ClassTrack.`);
-  } else {
-    console.error("ClassTrack failed to bind its local address:", error);
-  }
-  process.exitCode = 1;
-});
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    server.close(async () => {
-      await pool.end();
-      process.exit(0);
-    });
+const isMainModule = process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  const server = app.listen(port, host, () => {
+    console.info(`ClassTrack listening on ${host}:${port} (${appOrigin})`);
   });
+  server.on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use. Stop the other process or configure a different PORT before starting ClassTrack.`);
+    } else {
+      console.error("ClassTrack failed to bind its network address:", error);
+    }
+    process.exitCode = 1;
+  });
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      server.close(async () => {
+        await pool.end();
+        process.exit(0);
+      });
+    });
+  }
 }
