@@ -12,42 +12,42 @@ if (password.length < 12 || Buffer.byteLength(password, "utf8") > 72) {
 }
 
 const pool = getPool();
-const client = await pool.connect();
-try {
-  await client.query("BEGIN");
-  await client.query("SELECT pg_advisory_xact_lock(81420317)");
+let client;
+let transactionStarted = false;
 
-  const existingAdmin = await client.query(
-    "SELECT id, username, is_super_admin FROM users WHERE username = $1",
-    [username]
+try {
+  client = await pool.connect();
+  const passwordHash = await bcrypt.hash(password, 12);
+  await client.query("BEGIN");
+  transactionStarted = true;
+  await client.query("SELECT pg_advisory_xact_lock(81420317)");
+  const result = await client.query(
+    `INSERT INTO users (username, password_hash, full_name, is_admin, is_super_admin, is_active)
+     VALUES ($1, $2, 'ClassTrack Admin', TRUE, TRUE, TRUE)
+     ON CONFLICT (username) DO UPDATE
+     SET password_hash = EXCLUDED.password_hash,
+         is_admin = TRUE,
+         is_super_admin = TRUE,
+         is_active = TRUE
+     RETURNING (xmax = 0) AS created`,
+    [username, passwordHash]
   );
-  if (existingAdmin.rowCount) {
-    if (!existingAdmin.rows[0].is_super_admin) {
-      throw new Error(`Username "${username}" already belongs to a non-Super Admin account.`);
-    }
-    await client.query("COMMIT");
-    console.info(`Super Admin account already exists: ${username}`);
-  } else {
-    const existingSuperAdmin = await client.query(
-      "SELECT username FROM users WHERE is_super_admin = TRUE LIMIT 1"
-    );
-    if (existingSuperAdmin.rowCount) {
-      throw new Error(`A Super Admin already exists (${existingSuperAdmin.rows[0].username}); refusing to create another.`);
-    }
-    const passwordHash = await bcrypt.hash(password, 12);
-    await client.query(
-      `INSERT INTO users (username, password_hash, full_name, is_admin, is_super_admin)
-       VALUES ($1, $2, $3, TRUE, TRUE)`,
-      [username, passwordHash, "ClassTrack Admin"]
-    );
-    await client.query("COMMIT");
-    console.info(`Created initial Super Admin account: ${username}`);
-  }
+  await client.query("COMMIT");
+  transactionStarted = false;
+  console.info(`Super Admin account ${result.rows[0].created ? "created" : "updated"}.`);
 } catch (error) {
-  await client.query("ROLLBACK");
-  console.error("Database seed failed:", error);
+  if (client && transactionStarted) {
+    await client.query("ROLLBACK");
+  }
+  const errorCode = error && typeof error === "object" && "code" in error
+    ? error.code
+    : undefined;
+  console.error(
+    "Database seed failed.",
+    errorCode ? `Error code: ${errorCode}` : "Check database connectivity and configured admin settings."
+  );
   process.exitCode = 1;
 } finally {
-  client.release();
+  client?.release();
   await pool.end();
 }

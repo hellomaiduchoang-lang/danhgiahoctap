@@ -11,15 +11,23 @@ export function getPool() {
   }
 
   if (!pool) {
+    const databaseUrl = process.env.DATABASE_URL;
+    const database = new URL(databaseUrl);
+    const isLocalDatabase =
+      database.hostname === "localhost" ||
+      database.hostname === "127.0.0.1";
+
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: true } : undefined,
+      connectionString: databaseUrl,
+      ssl: isLocalDatabase
+        ? false
+        : { rejectUnauthorized: false },
       max: 10,
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000
+      connectionTimeoutMillis: 15_000
     });
-    pool.on("error", (error) => {
-      console.error("Unexpected PostgreSQL pool error:", error);
+    pool.on("error", () => {
+      console.error("Unexpected PostgreSQL pool error.");
     });
   }
   return pool;

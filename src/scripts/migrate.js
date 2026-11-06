@@ -6,9 +6,10 @@ import { getPool } from "../db.js";
 
 const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../api/db/migrations");
 const pool = getPool();
-const client = await pool.connect();
+let client;
 
 try {
+  client = await pool.connect();
   await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY,
@@ -18,12 +19,16 @@ try {
 
   const files = (await readdir(directory)).filter((name) => name.endsWith(".sql")).sort();
   for (const name of files) {
-    const applied = await client.query("SELECT 1 FROM schema_migrations WHERE name = $1", [name]);
-    if (applied.rowCount) continue;
-
     const sql = await readFile(path.join(directory, name), "utf8");
     await client.query("BEGIN");
     try {
+      await client.query("SELECT pg_advisory_xact_lock(81420318)");
+      const applied = await client.query("SELECT 1 FROM schema_migrations WHERE name = $1", [name]);
+      if (applied.rowCount) {
+        await client.query("COMMIT");
+        continue;
+      }
+
       await client.query(sql);
       await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [name]);
       await client.query("COMMIT");
@@ -34,9 +39,15 @@ try {
     }
   }
 } catch (error) {
-  console.error("Database migration failed:", error);
+  const errorCode = error && typeof error === "object" && "code" in error
+    ? error.code
+    : undefined;
+  console.error(
+    "Database migration failed.",
+    errorCode ? `Error code: ${errorCode}` : "Check database connectivity and migration files."
+  );
   process.exitCode = 1;
 } finally {
-  client.release();
+  client?.release();
   await pool.end();
 }
