@@ -1153,7 +1153,9 @@ app.get("/api/classes/:classId/students", requireAuthentication, classPermission
     }
   }
   const result = await pool.query(
-    `SELECT users.student_number AS id, users.username, class_members.id AS "memberId", users.full_name AS name, users.avatar_color AS color,
+    `SELECT users.student_number AS id,
+            ${roles.has("ROLE_TEACHER") ? "users.username," : ""}
+            class_members.id AS "memberId", users.full_name AS name, users.avatar_color AS color,
             users.avatar_data AS "avatarData",
             classes.name AS "className"
      FROM class_members
