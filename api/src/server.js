@@ -248,7 +248,7 @@ app.post("/api/classes/:classId/students", requireAuthentication, requireSameOri
   if (!request.classAccess.roles.has("ROLE_TEACHER")) {
     return response.status(403).json({ error: "Chỉ giáo viên của lớp mới được tạo tài khoản học sinh." });
   }
-  const { fullName } = request.body || {};
+  const fullName = typeof request.body?.fullName === "string" ? request.body.fullName.trim() : "";
   if (typeof fullName !== "string" || !fullName.trim() || fullName.trim().length > 120) {
     return response.status(400).json({ error: "Vui lòng nhập họ tên học sinh (tối đa 120 ký tự)." });
   }
@@ -259,27 +259,37 @@ app.post("/api/classes/:classId/students", requireAuthentication, requireSameOri
     const password = `Ct-${randomBytes(9).toString("base64url")}`;
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await client.query(
-      `INSERT INTO users (username, password_hash, full_name, student_number)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [username, passwordHash, fullName.trim(), studentNumber]
+      `INSERT INTO users (
+         username, password_hash, full_name, student_number, is_active, is_teacher,
+         is_admin, is_super_admin, must_change_password, password_reset_expires_at
+       )
+       VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
+       RETURNING id`,
+      [username.trim().toLowerCase(), passwordHash, fullName, studentNumber]
     );
     const membership = await client.query(
       "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
       [request.params.classId, user.rows[0].id]
     );
-    await client.query(
+    const assignedRole = await client.query(
       `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
        SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
       [request.params.classId, membership.rows[0].id, request.classAccess.memberId]
     );
+    if (assignedRole.rowCount !== 1) {
+      const error = new Error("Student role is not configured.");
+      error.code = "STUDENT_ROLE_NOT_CONFIGURED";
+      throw error;
+    }
     await audit(client, { classId: request.params.classId, actorUserId: request.user.id,
       action: "student.account_created", targetType: "user", targetId: user.rows[0].id,
       details: { username } });
     await client.query("COMMIT");
-    response.status(201).json({ account: { id: studentNumber, studentNumber, username, fullName: fullName.trim(), password } });
+    response.status(201).json({ account: { id: studentNumber, studentNumber, username, fullName, password } });
   } catch (error) {
     await client.query("ROLLBACK");
     if (error.code === "23505") return response.status(409).json({ error: "Tên đăng nhập hoặc mã học sinh đã được sử dụng." });
+    if (error.code === "23503") return response.status(404).json({ error: "Không tìm thấy lớp hoặc thành viên liên quan." });
     throw error;
   } finally {
     client.release();
@@ -310,19 +320,28 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
       Object.assign(student, await nextStudentIdentity(client));
       const passwordHash = await bcrypt.hash(student.password, 12);
       const user = await client.query(
-        `INSERT INTO users (username, password_hash, full_name, student_number)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
+        `INSERT INTO users (
+           username, password_hash, full_name, student_number, is_active, is_teacher,
+           is_admin, is_super_admin, must_change_password, password_reset_expires_at
+         )
+         VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
+         RETURNING id`,
         [student.username, passwordHash, student.fullName, student.studentNumber]
       );
       const membership = await client.query(
         "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
         [request.params.classId, user.rows[0].id]
       );
-      await client.query(
+      const assignedRole = await client.query(
         `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
          SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
         [request.params.classId, membership.rows[0].id, request.classAccess.memberId]
       );
+      if (assignedRole.rowCount !== 1) {
+        const error = new Error("Student role is not configured.");
+        error.code = "STUDENT_ROLE_NOT_CONFIGURED";
+        throw error;
+      }
       await audit(client, {
         classId: request.params.classId,
         actorUserId: request.user.id,
@@ -337,6 +356,7 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
   } catch (error) {
     await client.query("ROLLBACK");
     if (error.code === "23505") return response.status(409).json({ error: "Có mã học sinh hoặc tên đăng nhập đã tồn tại. Chưa tài khoản nào được tạo; hãy sửa danh sách rồi thử lại." });
+    if (error.code === "23503") return response.status(404).json({ error: "Không tìm thấy lớp hoặc thành viên liên quan. Chưa tài khoản nào được tạo." });
     throw error;
   } finally {
     client.release();
@@ -1763,7 +1783,13 @@ app.get(["/", "/index.html"], (_request, response) => {
 app.use(express.static(publicDirectory, { index: false }));
 
 app.use((error, _request, response, _next) => {
-  console.error("Request failed:", error);
+  const errorCode = error && typeof error === "object" && "code" in error
+    ? error.code
+    : undefined;
+  console.error(
+    "Request failed.",
+    errorCode ? `Error code: ${errorCode}` : "Unexpected server error."
+  );
   if (response.headersSent) return;
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500 ? error.status : 500;
   const codeByStatus = { 400: "BAD_REQUEST", 401: "UNAUTHORIZED", 403: "FORBIDDEN", 404: "NOT_FOUND", 409: "CONFLICT", 413: "PAYLOAD_TOO_LARGE", 422: "UNPROCESSABLE_ENTITY", 429: "RATE_LIMITED" };

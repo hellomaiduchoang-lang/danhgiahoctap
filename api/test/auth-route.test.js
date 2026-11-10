@@ -436,3 +436,239 @@ test("POST /api/admin/teachers validates the frontend body", async () => {
     database.restore();
   }
 });
+
+test("POST /api/classes/:classId/students creates a class student from the frontend body", async () => {
+  const studentId = "00000000-0000-4000-8000-000000000123";
+  const membershipId = "00000000-0000-4000-8000-000000000456";
+  const userInserts = [];
+  const queries = [];
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return { rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })], rowCount: 1 };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000789",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql, params = []) => {
+      queries.push(sql);
+      if (sql.includes("nextval('student_account_code_seq')")) {
+        return { rows: [{ code: 42 }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT 1 FROM users WHERE username")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("INSERT INTO users")) {
+        userInserts.push(params);
+        return { rows: [{ id: studentId }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO class_members")) {
+        return { rows: [{ id: membershipId }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO class_member_roles")) {
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: adminCookie
+        },
+        body: JSON.stringify({ fullName: "  Nguyễn Văn An  " })
+      });
+
+      assert.equal(response.status, 201);
+      const { account } = await response.json();
+      const [username, passwordHash, fullName, studentNumber] = userInserts[0];
+      assert.equal(account.id, "HS042");
+      assert.equal(account.studentNumber, "HS042");
+      assert.equal(account.username, "hs042");
+      assert.equal(account.fullName, "Nguyễn Văn An");
+      assert.equal(username, "hs042");
+      assert.equal(studentNumber, "HS042");
+      assert.equal(fullName, "Nguyễn Văn An");
+      assert.equal(await bcrypt.compare(account.password, passwordHash), true);
+      assert.notEqual(passwordHash, account.password);
+      assert.equal(JSON.stringify(account).includes(passwordHash), false);
+      assert.match(queries.find((sql) => sql.includes("INSERT INTO users")), /is_active,\s*is_teacher/);
+      assert.match(queries.find((sql) => sql.includes("INSERT INTO users")), /is_admin,\s*is_super_admin,\s*must_change_password/);
+      assert.ok(queries.includes("BEGIN"));
+      assert.ok(queries.includes("COMMIT"));
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("student creation rejects invalid names and class IDs", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return { rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })], rowCount: 1 };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000789",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const invalidName = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ fullName: "   " })
+      });
+      assert.equal(invalidName.status, 400);
+
+      const invalidClassId = await fetch(`${origin}/api/classes/not-a-uuid/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ fullName: "Nguyễn Văn An" })
+      });
+      assert.equal(invalidClassId.status, 400);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("student creation returns 409 and rolls back on a username or student code collision", async () => {
+  const queries = [];
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return { rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })], rowCount: 1 };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000789",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      queries.push(sql);
+      if (sql.includes("nextval('student_account_code_seq')")) return { rows: [{ code: 42 }], rowCount: 1 };
+      if (sql.includes("SELECT 1 FROM users WHERE username")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO users")) {
+        const error = new Error("duplicate key");
+        error.code = "23505";
+        throw error;
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ fullName: "Nguyễn Văn An" })
+      });
+      assert.equal(response.status, 409);
+      assert.deepEqual(await response.json(), {
+        error: "Tên đăng nhập hoặc mã học sinh đã được sử dụng.",
+        code: "CONFLICT"
+      });
+      assert.ok(queries.includes("ROLLBACK"));
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("student creation requires an authenticated teacher with students:list permission", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return { rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })], rowCount: 1 };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000789",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["classes:read"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const unauthenticated = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName: "Nguyễn Văn An" })
+      });
+      assert.equal(unauthenticated.status, 401);
+
+      const missingPermission = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ fullName: "Nguyễn Văn An" })
+      });
+      assert.equal(missingPermission.status, 403);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("student creation returns 404 if class membership is missing", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return { rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })], rowCount: 1 };
+      }
+      if (sql.includes("FROM class_members")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ fullName: "Nguyễn Văn An" })
+      });
+      assert.equal(response.status, 404);
+    });
+  } finally {
+    database.restore();
+  }
+});
