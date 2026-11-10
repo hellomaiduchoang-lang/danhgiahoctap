@@ -136,6 +136,9 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     const html = await readFile(new URL(file, import.meta.url), "utf8");
     assert.match(html, /https:\/\/classtrack-nobf\.onrender\.com/);
     assert.match(html, /credentials:\s*"include"/);
+    assert.match(html, /\/api\/classes\/\$\{encodeURIComponent\(activeClass\.id\)\}\/students/);
+    assert.match(html, /body:\s*\{\s*fullName:\s*document\.getElementById\("new-student-name"\)\.value\s*\}/);
+    assert.match(html, /timeoutMs:\s*120000/);
   }
 });
 

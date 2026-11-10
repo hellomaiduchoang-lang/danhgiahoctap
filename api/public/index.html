@@ -3235,11 +3235,14 @@
       document.getElementById("student-account-form").addEventListener("submit", async (event) => {
         event.preventDefault();
         const errorBox = document.getElementById("student-account-error");
+        const submit = event.currentTarget.querySelector('button[type="submit"]');
         errorBox.hidden = true;
+        submit.disabled = true;
         try {
           const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`, {
             method: "POST",
-            body: { fullName: document.getElementById("new-student-name").value }
+            body: { fullName: document.getElementById("new-student-name").value },
+            timeoutMs: 120000
           });
           rememberGeneratedStudentAccounts([result.account]);
           event.target.reset();
@@ -3247,6 +3250,8 @@
         } catch (error) {
           errorBox.textContent = error.message;
           errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
         }
       });
 
