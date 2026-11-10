@@ -1330,6 +1330,30 @@
               <div class="student-grid" id="student-grid" style="padding: 16px"></div>
               <div class="panel" id="student-account-panel" style="margin: 16px; padding: 18px;" hidden>
                 <div class="panel-title">Tạo tài khoản học sinh</div>
+                <div style="border-bottom:1px solid var(--line); margin:12px 0 16px; padding-bottom:16px;">
+                  <div class="panel-title">Nhập học sinh từ Excel</div>
+                  <p class="form-help" id="student-import-class-code" style="margin:8px 0;">Mã lớp phải được quản trị viên cấu hình trước khi nhập.</p>
+                  <p class="form-help">Tệp .xlsx hoặc .xls tối đa 5 MB và 500 dòng. Cần có các cột: username, full_name, student_code, class_code, password. Mật khẩu sẽ được băm; báo cáo không hiển thị mật khẩu.</p>
+                  <form id="student-import-form" class="form" style="margin-top:12px;">
+                    <div class="field"><label for="student-import-file">Tệp Excel</label><input id="student-import-file" type="file" accept=".xlsx,.xls" required /></div>
+                    <p class="auth-error" id="student-import-error" role="alert" hidden></p>
+                    <button class="button primary" id="student-import-submit" type="submit">Nhập học sinh</button>
+                  </form>
+                  <div id="student-import-report" role="status" aria-live="polite" style="margin-top:12px;" hidden>
+                    <div class="form-help" id="student-import-summary"></div>
+                    <ul id="student-import-errors" class="form-help" style="margin:8px 0 0; padding-left:20px;"></ul>
+                  </div>
+                </div>
+                <div style="border-bottom:1px solid var(--line); margin-bottom:16px; padding-bottom:16px;">
+                  <div class="panel-title">Danh sách học sinh và trạng thái tài khoản</div>
+                  <p class="form-help" id="teacher-student-list-permission" style="margin:8px 0;"></p>
+                  <div class="table-wrap">
+                    <table>
+                      <thead><tr><th>Mã học sinh</th><th>Tên đăng nhập</th><th>Họ tên</th><th>Thao tác</th></tr></thead>
+                      <tbody id="teacher-student-table"></tbody>
+                    </table>
+                  </div>
+                </div>
                 <form id="student-account-form" class="form" style="margin-top: 12px;">
                   <div class="field"><label for="new-student-name">Họ và tên học sinh</label><input id="new-student-name" maxlength="120" placeholder="Ví dụ: Nguyễn Văn An" required /></div>
                   <p class="form-help">ClassTrack tự tạo mã đăng nhập và mật khẩu cho học sinh.</p>
@@ -1815,15 +1839,51 @@
       const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
       const formatDate = (value) => new Date(value + "T00:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 
+      function renderTeacherStudentList() {
+        const table = document.getElementById("teacher-student-table");
+        const canDeactivate = Boolean(
+          currentUser?.isTeacher &&
+          !currentUser.isAdmin &&
+          activeClass?.roles.includes("ROLE_TEACHER") &&
+          activeClass?.permissions.includes("students:delete")
+        );
+        document.getElementById("teacher-student-list-permission").textContent = canDeactivate
+          ? "Vô hiệu hóa sẽ khóa đăng nhập nhưng giữ nguyên tài khoản, lớp và toàn bộ dữ liệu học tập."
+          : "Bạn có thể xem danh sách học sinh; quyền vô hiệu hóa chưa được cấp cho lớp này.";
+        table.innerHTML = students.length
+          ? students.map((student) => `<tr>
+              <td>${escapeHtml(student.id)}</td>
+              <td>${escapeHtml(student.username)}</td>
+              <td>${escapeHtml(student.name)}</td>
+              <td>${canDeactivate
+                ? `<button class="button" type="button" data-deactivate-student="${escapeHtml(student.memberId)}">Vô hiệu hóa</button>`
+                : "—"}</td>
+            </tr>`).join("")
+          : `<tr><td colspan="4" class="form-help">Chưa có học sinh đang hoạt động trong lớp.</td></tr>`;
+      }
+
+      function renderStudentImportReport(report) {
+        const reportElement = document.getElementById("student-import-report");
+        const errors = Array.isArray(report?.errors) ? report.errors : [];
+        document.getElementById("student-import-summary").textContent =
+          `Đã tạo: ${Number(report?.created) || 0} · Bỏ qua: ${Number(report?.skipped) || 0} · Lỗi: ${Number(report?.failed) || 0}`;
+        document.getElementById("student-import-errors").innerHTML = errors.map((item) =>
+          `<li>Dòng ${escapeHtml(item.row)}${item.field ? ` (${escapeHtml(item.field)})` : ""}: ${escapeHtml(item.message)}</li>`
+        ).join("");
+        reportElement.hidden = false;
+      }
+
       async function apiRequest(path, options = {}) {
         const method = (options.method || "GET").toUpperCase();
+        const isFormData = options.body instanceof FormData;
+        const timeoutMs = options.timeoutMs || 15000;
         const canRetry = method === "GET" && options.retry !== false;
         const maxAttempts = canRetry ? 2 : 1;
         let response;
         let networkError;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), 15000);
+          const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
           try {
             if (window.location.protocol !== "file:" && navigator.onLine === false) {
               throw new Error("offline");
@@ -1831,8 +1891,8 @@
             response = await fetch(`${apiOrigin}${path}`, {
               method,
               credentials: "include",
-              headers: options.body ? { "Content-Type": "application/json" } : undefined,
-              body: options.body ? JSON.stringify(options.body) : undefined,
+              headers: options.body && !isFormData ? { "Content-Type": "application/json" } : undefined,
+              body: options.body ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
               signal: options.signal || controller.signal
             });
             networkError = null;
@@ -1875,6 +1935,7 @@
             : result?.error || `Request failed (${response.status}) for ${method} ${path}.`;
           const error = new Error(message);
           error.status = response.status;
+          error.response = result;
           error.isAuthError = response.status === 401;
           throw error;
         }
@@ -1907,7 +1968,11 @@
         roleRequestLoadVersion++;
         if (!activeClass) return;
         const permissions = new Set(activeClass.permissions);
-        document.getElementById("student-account-panel").hidden = !activeClass.roles.includes("ROLE_TEACHER") || !permissions.has("students:list");
+        const isClassTeacher = Boolean(currentUser?.isTeacher && !currentUser.isAdmin && activeClass.roles.includes("ROLE_TEACHER"));
+        document.getElementById("student-account-panel").hidden = !isClassTeacher || !permissions.has("students:list");
+        document.getElementById("student-import-class-code").textContent = activeClass.classCode
+          ? `Mã lớp hiện tại: ${activeClass.classCode}. Tệp phải khai báo đúng mã lớp này.`
+          : "Lớp này chưa có mã class_code; hãy yêu cầu quản trị viên cấu hình trước khi nhập.";
         document.getElementById("student-count-label").textContent = permissions.has("students:list")
           ? "Học sinh trong lớp"
           : "Học sinh trong phạm vi";
@@ -1942,6 +2007,7 @@
         ]);
         if (loadVersion !== classLoadVersion || !activeClass) return;
         students = Array.isArray(studentData?.students) ? studentData.students : [];
+        renderTeacherStudentList();
         incidents = Array.isArray(incidentData?.incidents) ? incidentData.incidents : [];
         conductCategories = Array.isArray(categoryData?.categories) ? categoryData.categories : [];
         forumPosts = Array.isArray(forumData?.posts) ? forumData.posts : [];
@@ -3105,6 +3171,66 @@
       document.getElementById("type-filter").addEventListener("change", renderIncidents);
       document.getElementById("status-filter").addEventListener("change", renderIncidents);
       document.getElementById("student-search").addEventListener("input", renderStudents);
+
+      document.getElementById("student-import-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("student-import-error");
+        const submit = document.getElementById("student-import-submit");
+        const fileInput = document.getElementById("student-import-file");
+        const file = fileInput.files[0];
+        errorBox.hidden = true;
+        document.getElementById("student-import-report").hidden = true;
+        if (!file) {
+          errorBox.textContent = "Hãy chọn tệp Excel cần nhập.";
+          errorBox.hidden = false;
+          return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          errorBox.textContent = "Tệp Excel không được vượt quá 5 MB.";
+          errorBox.hidden = false;
+          return;
+        }
+        if (!/\.(xlsx|xls)$/i.test(file.name)) {
+          errorBox.textContent = "Chỉ chấp nhận tệp .xlsx hoặc .xls.";
+          errorBox.hidden = false;
+          return;
+        }
+        const formData = new FormData();
+        formData.append("file", file);
+        submit.disabled = true;
+        try {
+          const report = await apiRequest("/api/teacher/students/import", {
+            method: "POST",
+            body: formData,
+            timeoutMs: 300000
+          });
+          renderStudentImportReport(report);
+          event.target.reset();
+          await loadClassData();
+        } catch (error) {
+          if (error.response?.report) renderStudentImportReport(error.response.report);
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      document.getElementById("teacher-student-table").addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-deactivate-student]");
+        if (!button) return;
+        const student = students.find((item) => item.memberId === button.dataset.deactivateStudent);
+        if (!student || !window.confirm(`Vô hiệu hóa tài khoản ${student.name}? Học sinh sẽ không thể đăng nhập; dữ liệu học tập được giữ nguyên.`)) return;
+        button.disabled = true;
+        try {
+          await apiRequest(`/api/teacher/students/${encodeURIComponent(student.memberId)}`, { method: "DELETE" });
+          await loadClassData();
+          showToast(`Đã vô hiệu hóa tài khoản của ${student.name}.`);
+        } catch (error) {
+          button.disabled = false;
+          showToast(error.message);
+        }
+      });
 
       document.getElementById("student-account-form").addEventListener("submit", async (event) => {
         event.preventDefault();

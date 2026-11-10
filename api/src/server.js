@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import bcrypt from "bcryptjs";
+import multer from "multer";
+import * as XLSX from "@e965/xlsx";
 import { randomBytes } from "node:crypto";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
@@ -56,6 +58,11 @@ const isDevelopment = process.env.NODE_ENV !== "production";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const publicDirectory = path.join(root, "public");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_STUDENT_IMPORT_SIZE = 5 * 1024 * 1024;
+const studentImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_STUDENT_IMPORT_SIZE, files: 1, fields: 0, parts: 1 }
+});
 
 app.disable("x-powered-by");
 if (process.env.NODE_ENV === "production") app.set("trust proxy", 1);
@@ -158,6 +165,26 @@ function requireClassTeacher(request, response, next) {
   return next();
 }
 
+function requireTeacherAccount(request, response, next) {
+  if (!request.user?.isTeacher || request.user.isAdmin) {
+    return response.status(403).json({ error: "Chỉ giáo viên mới được thực hiện thao tác này." });
+  }
+  return next();
+}
+
+function parseStudentImportFile(request, response, next) {
+  studentImportUpload.single("file")(request, response, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) {
+      const tooLarge = error.code === "LIMIT_FILE_SIZE";
+      return response.status(tooLarge ? 413 : 400).json({
+        error: tooLarge ? "Tệp Excel không được vượt quá 5 MB." : "Chỉ được tải lên một tệp trong trường file."
+      });
+    }
+    return next(error);
+  });
+}
+
 function requireAdminPermission(permission) {
   return (request, response, next) => {
     if (!request.user?.isAdmin) return response.status(403).json({ error: "Chỉ tài khoản quản trị mới được thực hiện thao tác này." });
@@ -243,6 +270,280 @@ app.post("/api/auth/login", requireSameOrigin, loginLimiter, asyncRoute(async (r
   setSessionCookie(response, result.token);
   response.json({ user: result.user });
 }));
+
+app.post(
+  "/api/teacher/students/import",
+  requireAuthentication,
+  requireSameOrigin,
+  requireTeacherAccount,
+  parseStudentImportFile,
+  asyncRoute(async (request, response) => {
+    const report = { created: 0, skipped: 0, failed: 0, errors: [] };
+    const file = request.file;
+    if (!file) return response.status(400).json({ error: "Hãy chọn tệp Excel trong trường file." });
+    if (![".xlsx", ".xls"].includes(path.extname(file.originalname).toLowerCase())) {
+      return response.status(400).json({ error: "Chỉ chấp nhận tệp .xlsx hoặc .xls." });
+    }
+
+    let rows;
+    try {
+      const workbook = XLSX.read(file.buffer, { type: "buffer", dense: true, cellDates: false });
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) return response.status(400).json({ error: "Tệp Excel không có trang tính." });
+      const worksheet = workbook.Sheets[firstSheet];
+      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1:A1");
+      if (range.e.r > 500) return response.status(400).json({ error: "Tệp Excel chỉ được có tối đa 500 dòng dữ liệu." });
+      rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "", blankrows: true });
+    } catch {
+      return response.status(400).json({ error: "Tệp Excel không hợp lệ hoặc không thể đọc." });
+    }
+
+    const requiredColumns = ["username", "full_name", "student_code", "class_code", "password"];
+    const headers = (Array.isArray(rows[0]) ? rows[0] : []).map((value) =>
+      String(value ?? "").replace(/^\uFEFF/, "").trim().toLowerCase()
+    );
+    const columnIndexes = Object.fromEntries(requiredColumns.map((column) => [column, headers.indexOf(column)]));
+    const missingColumns = requiredColumns.filter((column) => columnIndexes[column] < 0);
+    if (missingColumns.length) {
+      return response.status(400).json({
+        error: `Thiếu cột bắt buộc: ${missingColumns.join(", ")}.`,
+        report
+      });
+    }
+
+    const inputRows = rows.slice(1)
+      .map((cells, index) => ({ row: index + 2, cells: Array.isArray(cells) ? cells : [] }))
+      .filter(({ cells }) => cells.some((value) => String(value ?? "").trim() !== ""));
+    if (inputRows.length > 500) {
+      return response.status(400).json({ error: "Tệp Excel chỉ được có tối đa 500 dòng dữ liệu." });
+    }
+    if (!inputRows.length) return response.status(400).json({ error: "Tệp Excel không có dòng dữ liệu." });
+
+    const validRows = [];
+    for (const { row, cells } of inputRows) {
+      const student = {
+        row,
+        username: String(cells[columnIndexes.username] ?? "").trim().toLowerCase(),
+        fullName: String(cells[columnIndexes.full_name] ?? "").trim(),
+        studentCode: String(cells[columnIndexes.student_code] ?? "").trim(),
+        classCode: String(cells[columnIndexes.class_code] ?? "").trim(),
+        password: String(cells[columnIndexes.password] ?? "")
+      };
+      const rowErrors = [];
+      if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(student.username)) {
+        rowErrors.push(["username", "Tên đăng nhập phải dài 3–32 ký tự và chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang."]);
+      }
+      if (!student.fullName || student.fullName.length > 120) {
+        rowErrors.push(["full_name", "Họ tên là bắt buộc và không được vượt quá 120 ký tự."]);
+      }
+      if (!student.studentCode || student.studentCode.length > 32) {
+        rowErrors.push(["student_code", "Mã học sinh là bắt buộc và không được vượt quá 32 ký tự."]);
+      }
+      if (!student.classCode || student.classCode.length > 64) {
+        rowErrors.push(["class_code", "Mã lớp là bắt buộc và không được vượt quá 64 ký tự."]);
+      }
+      if (!student.password || Buffer.byteLength(student.password, "utf8") > 72) {
+        rowErrors.push(["password", "Mật khẩu là bắt buộc và không được vượt quá 72 byte."]);
+      }
+      if (rowErrors.length) {
+        report.failed++;
+        for (const [field, message] of rowErrors) {
+          report.errors.push({ row, field, code: "INVALID_VALUE", message });
+        }
+      } else {
+        validRows.push(student);
+      }
+    }
+
+    const seenUsernames = new Set();
+    const seenStudentCodes = new Set();
+    const uniqueRows = [];
+    for (const student of validRows) {
+      if (seenUsernames.has(student.username) || seenStudentCodes.has(student.studentCode)) {
+        report.skipped++;
+        report.errors.push({
+          row: student.row,
+          field: seenUsernames.has(student.username) ? "username" : "student_code",
+          code: "DUPLICATE_IN_FILE",
+          message: "Tên đăng nhập hoặc mã học sinh đã xuất hiện trong tệp."
+        });
+        continue;
+      }
+      seenUsernames.add(student.username);
+      seenStudentCodes.add(student.studentCode);
+      uniqueRows.push(student);
+    }
+
+    if (!uniqueRows.length) return response.json(report);
+
+    const classCodes = [...new Set(uniqueRows.map((student) => student.classCode.toLowerCase()))];
+    const classResult = await pool.query(
+      `SELECT classes.id, classes.class_code AS "classCode",
+              (SELECT class_members.id
+               FROM class_members
+               WHERE class_members.class_id = classes.id
+                 AND class_members.user_id = $2
+                 AND class_members.is_active = TRUE
+               LIMIT 1) AS "teacherMemberId",
+              ARRAY(
+                SELECT roles.name
+                FROM class_members
+                JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+                JOIN roles ON roles.id = class_member_roles.role_id
+                WHERE class_members.class_id = classes.id
+                  AND class_members.user_id = $2
+                  AND class_members.is_active = TRUE
+              ) AS roles,
+              ARRAY(
+                SELECT permissions.name
+                FROM class_members
+                JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+                JOIN role_permissions ON role_permissions.role_id = class_member_roles.role_id
+                JOIN permissions ON permissions.id = role_permissions.permission_id
+                WHERE class_members.class_id = classes.id
+                  AND class_members.user_id = $2
+                  AND class_members.is_active = TRUE
+                UNION
+                SELECT permissions.name
+                FROM class_members
+                JOIN member_permissions ON member_permissions.class_member_id = class_members.id
+                JOIN permissions ON permissions.id = member_permissions.permission_id
+                WHERE class_members.class_id = classes.id
+                  AND class_members.user_id = $2
+                  AND class_members.is_active = TRUE
+              ) AS permissions
+       FROM classes
+       WHERE LOWER(BTRIM(classes.class_code)) = ANY($1::text[])`,
+      [classCodes, request.user.id]
+    );
+    const classesByCode = new Map(classResult.rows.map((row) => [row.classCode.toLowerCase(), row]));
+    const readyRows = [];
+    for (const student of uniqueRows) {
+      const classroom = classesByCode.get(student.classCode.toLowerCase());
+      if (!classroom) {
+        report.failed++;
+        report.errors.push({
+          row: student.row,
+          field: "class_code",
+          code: "CLASS_NOT_FOUND",
+          message: "Không tìm thấy mã lớp trong hệ thống."
+        });
+        continue;
+      }
+      student.classroom = classroom;
+      readyRows.push(student);
+    }
+
+    const unauthorizedRows = readyRows.filter(({ classroom }) =>
+      !classroom.roles.includes("ROLE_TEACHER") ||
+      !classroom.permissions.includes("students:list")
+    );
+    if (unauthorizedRows.length) {
+      const unauthorizedSet = new Set(unauthorizedRows);
+      for (const student of readyRows) {
+        report.failed++;
+        report.errors.push({
+          row: student.row,
+          field: "class_code",
+          code: unauthorizedSet.has(student) ? "CLASS_FORBIDDEN" : "IMPORT_ABORTED",
+          message: unauthorizedSet.has(student)
+            ? "Bạn không được phân công phụ trách lớp này."
+            : "Không nhập dòng này vì tệp có mã lớp ngoài phạm vi phụ trách."
+        });
+      }
+      return response.status(403).json({
+        error: "Chỉ được nhập học sinh vào lớp do giáo viên hiện tại phụ trách.",
+        report
+      });
+    }
+
+    if (!readyRows.length) return response.status(400).json({ error: "Không có dòng nào hợp lệ để nhập.", report });
+
+    const existing = await pool.query(
+      `SELECT username, student_number
+       FROM users
+       WHERE username = ANY($1::text[]) OR student_number = ANY($2::text[])`,
+      [readyRows.map(({ username }) => username), readyRows.map(({ studentCode }) => studentCode)]
+    );
+    const existingUsernames = new Set(existing.rows.map((row) => row.username));
+    const existingStudentCodes = new Set(existing.rows.map((row) => row.student_number));
+    const insertRows = [];
+    for (const student of readyRows) {
+      if (existingUsernames.has(student.username) || existingStudentCodes.has(student.studentCode)) {
+        report.skipped++;
+        report.errors.push({
+          row: student.row,
+          field: existingUsernames.has(student.username) ? "username" : "student_code",
+          code: "DUPLICATE_IN_DATABASE",
+          message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
+        });
+        continue;
+      }
+      student.passwordHash = await bcrypt.hash(student.password, 12);
+      insertRows.push(student);
+    }
+
+    if (!insertRows.length) return response.json(report);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const student of insertRows) {
+        const insertedUser = await client.query(
+          `INSERT INTO users (
+             username, password_hash, full_name, student_number, is_active, is_teacher,
+             is_admin, is_super_admin, must_change_password, password_reset_expires_at
+           )
+           VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [student.username, student.passwordHash, student.fullName, student.studentCode]
+        );
+        if (!insertedUser.rowCount) {
+          report.skipped++;
+          report.errors.push({
+            row: student.row,
+            field: "username",
+            code: "DUPLICATE_IN_DATABASE",
+            message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
+          });
+          continue;
+        }
+
+        const membership = await client.query(
+          "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
+          [student.classroom.id, insertedUser.rows[0].id]
+        );
+        const assignedRole = await client.query(
+          `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
+           SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
+          [student.classroom.id, membership.rows[0].id, student.classroom.teacherMemberId]
+        );
+        if (assignedRole.rowCount !== 1) {
+          const error = new Error("Student role is not configured.");
+          error.code = "STUDENT_ROLE_NOT_CONFIGURED";
+          throw error;
+        }
+        await audit(client, {
+          classId: student.classroom.id,
+          actorUserId: request.user.id,
+          action: "teacher.student_imported",
+          targetType: "user",
+          targetId: insertedUser.rows[0].id,
+          details: { username: student.username, studentNumber: student.studentCode, classCode: student.classroom.classCode }
+        });
+        report.created++;
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    response.json(report);
+  })
+);
 
 app.post("/api/classes/:classId/students", requireAuthentication, requireSameOrigin, classPermission("students:list"), asyncRoute(async (request, response) => {
   if (!request.classAccess.roles.has("ROLE_TEACHER")) {
@@ -726,6 +1027,7 @@ app.get("/api/admin/overview", requireAuthentication, asyncRoute(async (request,
 app.get("/api/session", requireAuthentication, asyncRoute(async (request, response) => {
   const result = await pool.query(
     `SELECT classes.id, classes.name,
+            classes.class_code AS "classCode",
             classes.academic_year AS "academicYear",
             ARRAY(SELECT roles.name FROM class_member_roles
                   JOIN roles ON roles.id = class_member_roles.role_id
@@ -762,6 +1064,7 @@ app.post("/api/auth/logout", requireSameOrigin, requireAuthentication, asyncRout
 app.get("/api/classes", requireAuthentication, asyncRoute(async (request, response) => {
   const result = await pool.query(
     `SELECT classes.id, classes.name,
+            classes.class_code AS "classCode",
             classes.academic_year AS "academicYear",
             ARRAY(SELECT roles.name FROM class_member_roles
                   JOIN roles ON roles.id = class_member_roles.role_id
@@ -850,7 +1153,7 @@ app.get("/api/classes/:classId/students", requireAuthentication, classPermission
     }
   }
   const result = await pool.query(
-    `SELECT users.student_number AS id, class_members.id AS "memberId", users.full_name AS name, users.avatar_color AS color,
+    `SELECT users.student_number AS id, users.username, class_members.id AS "memberId", users.full_name AS name, users.avatar_color AS color,
             users.avatar_data AS "avatarData",
             classes.name AS "className"
      FROM class_members
@@ -858,6 +1161,7 @@ app.get("/api/classes/:classId/students", requireAuthentication, classPermission
      JOIN classes ON classes.id = class_members.class_id
      WHERE class_members.class_id = $1
        AND class_members.is_active = TRUE
+       AND users.is_active = TRUE
        ${scope}
        AND EXISTS (
          SELECT 1 FROM class_member_roles
@@ -870,6 +1174,112 @@ app.get("/api/classes/:classId/students", requireAuthentication, classPermission
   );
   response.json({ students: result.rows });
 }));
+
+app.delete(
+  "/api/teacher/students/:studentId",
+  requireAuthentication,
+  requireSameOrigin,
+  requireTeacherAccount,
+  asyncRoute(async (request, response) => {
+    if (!UUID_PATTERN.test(request.params.studentId)) {
+      return response.status(400).json({ error: "Mã học sinh không hợp lệ." });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const studentResult = await client.query(
+        `SELECT class_members.id AS "memberId", class_members.class_id AS "classId",
+                class_members.user_id AS "userId", users.full_name AS "fullName",
+                users.student_number AS "studentNumber"
+         FROM class_members
+         JOIN users ON users.id = class_members.user_id
+         WHERE class_members.id = $1
+           AND class_members.is_active = TRUE
+           AND users.is_active = TRUE
+           AND EXISTS (
+             SELECT 1
+             FROM class_member_roles
+             JOIN roles ON roles.id = class_member_roles.role_id
+             WHERE class_member_roles.class_member_id = class_members.id
+               AND roles.name = 'ROLE_STUDENT'
+           )
+         FOR UPDATE OF class_members, users`,
+        [request.params.studentId]
+      );
+      if (!studentResult.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(404).json({ error: "Không tìm thấy học sinh đang hoạt động." });
+      }
+      const student = studentResult.rows[0];
+      const accessResult = await client.query(
+        `SELECT
+           EXISTS (
+             SELECT 1
+             FROM class_members
+             JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+             JOIN roles ON roles.id = class_member_roles.role_id
+             WHERE class_members.user_id = $1
+               AND class_members.class_id = $2
+               AND class_members.is_active = TRUE
+               AND roles.name = 'ROLE_TEACHER'
+           ) AS is_teacher,
+           EXISTS (
+             SELECT 1
+             FROM class_members
+             JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+             JOIN roles ON roles.id = class_member_roles.role_id
+             JOIN role_permissions ON role_permissions.role_id = roles.id
+             JOIN permissions ON permissions.id = role_permissions.permission_id
+             WHERE class_members.user_id = $1
+               AND class_members.class_id = $2
+               AND class_members.is_active = TRUE
+               AND roles.name = 'ROLE_TEACHER'
+               AND permissions.name = 'students:delete'
+             UNION
+             SELECT 1
+             FROM class_members
+             JOIN member_permissions ON member_permissions.class_member_id = class_members.id
+             JOIN permissions ON permissions.id = member_permissions.permission_id
+             WHERE class_members.user_id = $1
+               AND class_members.class_id = $2
+               AND class_members.is_active = TRUE
+               AND permissions.name = 'students:delete'
+           ) AS can_delete`,
+        [request.user.id, student.classId]
+      );
+      const access = accessResult.rows[0];
+      if (!access?.is_teacher || !access.can_delete) {
+        await client.query("ROLLBACK");
+        return response.status(403).json({ error: "Bạn không có quyền vô hiệu hóa học sinh trong lớp này." });
+      }
+
+      const deactivated = await client.query(
+        "UPDATE users SET is_active = FALSE WHERE id = $1 AND is_active = TRUE RETURNING id",
+        [student.userId]
+      );
+      if (!deactivated.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(404).json({ error: "Không tìm thấy học sinh đang hoạt động." });
+      }
+      await audit(client, {
+        classId: student.classId,
+        actorUserId: request.user.id,
+        action: "teacher.student_deactivated",
+        targetType: "user",
+        targetId: student.userId,
+        details: { studentNumber: student.studentNumber, fullName: student.fullName }
+      });
+      await client.query("COMMIT");
+      response.status(204).end();
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
 
 app.delete("/api/classes/:classId/students/:studentNumber", requireAuthentication, requireSameOrigin,
   classPermission("students:list"), requireClassTeacher, asyncRoute(async (request, response) => {
