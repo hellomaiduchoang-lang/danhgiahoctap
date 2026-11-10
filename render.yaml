@@ -1,6 +1,7 @@
 services:
   - type: web
     name: classtrack
+    rootDir: api
     runtime: node
     plan: starter
     region: singapore
