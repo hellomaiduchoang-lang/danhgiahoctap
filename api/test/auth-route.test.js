@@ -1,13 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import bcrypt from "bcryptjs";
+import { readFile } from "node:fs/promises";
 
+process.env.NODE_ENV = "test";
+process.env.APP_ORIGIN = "http://127.0.0.1:3000";
+process.env.FRONTEND_ORIGIN = "https://hellomaiduchoang-lang.github.io";
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5432/test";
 }
 
 const { pool } = await import("../src/db.js");
 const { app } = await import("../src/server.js");
+const { clearSessionCookie, setSessionCookie } = await import("../src/auth.js");
+const githubPagesOrigin = "https://hellomaiduchoang-lang.github.io";
 
 async function withServer(handler) {
   const server = app.listen(0, "127.0.0.1");
@@ -25,14 +31,18 @@ async function withServer(handler) {
   }
 }
 
-function installDatabaseMock({ user, clientQuery = async () => ({ rows: [], rowCount: 0 }) }) {
+function installDatabaseMock({
+  user,
+  poolQuery = async () => ({ rows: user ? [user] : [], rowCount: user ? 1 : 0 }),
+  clientQuery = async () => ({ rows: [], rowCount: 0 })
+}) {
   const hadOwnQuery = Object.hasOwn(pool, "query");
   const hadOwnConnect = Object.hasOwn(pool, "connect");
   const originalQuery = pool.query;
   const originalConnect = pool.connect;
   let released = false;
 
-  pool.query = async () => ({ rows: user ? [user] : [], rowCount: user ? 1 : 0 });
+  pool.query = poolQuery;
   pool.connect = async () => ({
     query: clientQuery,
     release: () => { released = true; }
@@ -98,6 +108,73 @@ test("POST /api/auth/login parses JSON and reaches the login handler", async () 
   }
 });
 
+test("session cookies allow secure cross-site use in production", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const headers = new Map();
+  const response = { setHeader: (name, value) => headers.set(name, value) };
+  process.env.NODE_ENV = "production";
+
+  try {
+    setSessionCookie(response, "session-token");
+    const cookie = headers.get("Set-Cookie");
+    assert.match(cookie, /; Secure/);
+    assert.match(cookie, /; SameSite=None/);
+    assert.match(cookie, /; HttpOnly/);
+
+    clearSessionCookie(response);
+    const clearedCookie = headers.get("Set-Cookie");
+    assert.match(clearedCookie, /; Secure/);
+    assert.match(clearedCookie, /; SameSite=None/);
+    assert.match(clearedCookie, /; Max-Age=0/);
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
+});
+
+test("deployed frontend sends credentialed requests to the Render API", async () => {
+  for (const file of ["../../public/index.html", "../public/index.html"]) {
+    const html = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.match(html, /https:\/\/classtrack-nobf\.onrender\.com/);
+    assert.match(html, /credentials:\s*"include"/);
+  }
+});
+
+test("CORS allows credentialed requests only from the configured frontend origin", async () => {
+  await withServer(async (origin) => {
+    const allowed = await fetch(`${origin}/health`, {
+      headers: { Origin: githubPagesOrigin }
+    });
+    assert.equal(allowed.headers.get("access-control-allow-origin"), githubPagesOrigin);
+    assert.equal(allowed.headers.get("access-control-allow-credentials"), "true");
+
+    const preflight = await fetch(`${origin}/api/admin/teachers`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: githubPagesOrigin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type"
+      }
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), githubPagesOrigin);
+    assert.equal(preflight.headers.get("access-control-allow-credentials"), "true");
+
+    const untrusted = await fetch(`${origin}/health`, {
+      headers: { Origin: "https://attacker.example" }
+    });
+    assert.equal(untrusted.headers.get("access-control-allow-origin"), null);
+
+    const rejectedPreflight = await fetch(`${origin}/api/admin/teachers`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://attacker.example",
+        "Access-Control-Request-Method": "POST"
+      }
+    });
+    assert.equal(rejectedPreflight.status, 403);
+  });
+});
+
 test("POST /api/admin/teachers creates hashed teacher accounts and returns frontend format", async () => {
   const userInserts = [];
   const queries = [];
@@ -140,7 +217,166 @@ test("POST /api/admin/teachers creates hashed teacher accounts and returns front
       assert.ok(queries.includes("BEGIN"));
       assert.ok(queries.includes("COMMIT"));
       assert.ok(queries.some((sql) => sql.includes("INSERT INTO audit_logs")));
+      const teacherInsert = queries.find((sql) => sql.includes("INSERT INTO users"));
+      assert.match(teacherInsert, /is_active,\s*is_teacher/);
+      assert.match(teacherInsert, /is_admin,\s*is_super_admin,\s*must_change_password/);
+      assert.match(teacherInsert, /TRUE,\s*TRUE,\s*FALSE,\s*FALSE,\s*TRUE/);
       assert.equal(database.wasReleased(), true);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("a created teacher can log in, and the response never includes the password hash", async () => {
+  let createdUser;
+  const database = installDatabaseMock({
+    user: authenticatedUser({ isSuperAdmin: false, adminPermissions: ["teachers:manage"] }),
+    poolQuery: async (sql, params = []) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return { rows: [authenticatedUser()], rowCount: 1 };
+      }
+      if (sql.includes("FROM users WHERE users.username")) {
+        return {
+          rows: createdUser && createdUser.username === params[0] ? [createdUser] : [],
+          rowCount: createdUser && createdUser.username === params[0] ? 1 : 0
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql, params = []) => {
+      if (sql.includes("INSERT INTO users")) {
+        const [username, password_hash, full_name] = params;
+        createdUser = {
+          id: "00000000-0000-4000-8000-000000000123",
+          username,
+          password_hash,
+          full_name,
+          is_active: true,
+          is_teacher: true,
+          is_admin: false,
+          is_super_admin: false,
+          must_change_password: true,
+          password_reset_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          admin_permissions: []
+        };
+        return { rows: [{ id: createdUser.id }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const createResponse = await fetch(`${origin}/api/admin/teachers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: adminCookie
+        },
+        body: JSON.stringify({ teachers: ["  Nguyễn Giáo Viên  "] })
+      });
+      assert.equal(createResponse.status, 201);
+      const { accounts } = await createResponse.json();
+      assert.equal(accounts.length, 1);
+      assert.equal(accounts[0].fullName, "Nguyễn Giáo Viên");
+      assert.ok(accounts[0].username.length <= 32);
+      assert.equal(createdUser.full_name, "Nguyễn Giáo Viên");
+      assert.equal(createdUser.is_active, true);
+      assert.equal(createdUser.is_teacher, true);
+      assert.equal(createdUser.is_admin, false);
+      assert.equal(createdUser.is_super_admin, false);
+      assert.equal(createdUser.must_change_password, true);
+      assert.equal(await bcrypt.compare(accounts[0].password, createdUser.password_hash), true);
+      assert.notEqual(createdUser.password_hash, accounts[0].password);
+      assert.equal(typeof createdUser.password_hash, "string");
+
+      const loginResponse = await fetch(`${origin}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: `  ${accounts[0].username.toUpperCase()}  `,
+          password: accounts[0].password
+        })
+      });
+      assert.equal(loginResponse.status, 200);
+      const loginBody = await loginResponse.json();
+      assert.equal(loginBody.user.username, createdUser.username);
+      assert.equal(loginBody.user.mustChangePassword, true);
+      assert.equal(JSON.stringify(loginBody).includes(createdUser.password_hash), false);
+      assert.match(loginResponse.headers.get("set-cookie"), /classtrack_session=/);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("teacher login rejects an incorrect password", async () => {
+  const passwordHash = await bcrypt.hash("teacher-correct-password", 4);
+  const database = installDatabaseMock({
+    poolQuery: async (sql, params = []) => {
+      if (sql.includes("FROM users WHERE users.username")) {
+        const user = params[0] === "teacher.test"
+          ? {
+              username: "teacher.test",
+              password_hash: passwordHash,
+              must_change_password: false,
+              admin_permissions: []
+            }
+          : null;
+        return { rows: user ? [user] : [], rowCount: user ? 1 : 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "teacher.test", password: "wrong-password" })
+      });
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), {
+        error: "Tên đăng nhập hoặc mật khẩu không chính xác.",
+        code: "UNAUTHORIZED"
+      });
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("teacher username collisions return 409 and roll back the batch", async () => {
+  let insertAttempts = 0;
+  const queries = [];
+  const database = installDatabaseMock({
+    user: authenticatedUser(),
+    clientQuery: async (sql) => {
+      queries.push(sql);
+      if (sql.includes("INSERT INTO users")) {
+        insertAttempts++;
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/admin/teachers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: adminCookie
+        },
+        body: JSON.stringify({ teachers: ["Giáo Viên Trùng"] })
+      });
+      assert.equal(response.status, 409);
+      assert.equal(insertAttempts, 5);
+      assert.ok(queries.includes("ROLLBACK"));
+      assert.equal((await response.json()).accounts, undefined);
     });
   } finally {
     database.restore();
@@ -156,10 +392,15 @@ test("POST /api/admin/teachers rejects unauthenticated and unauthorized users", 
     await withServer(async (origin) => {
       const unauthenticated = await fetch(`${origin}/api/admin/teachers`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Origin: githubPagesOrigin
+        },
         body: JSON.stringify({ teachers: ["Nguyễn Minh An"] })
       });
       assert.equal(unauthenticated.status, 401);
+      assert.equal(unauthenticated.headers.get("access-control-allow-origin"), githubPagesOrigin);
+      assert.equal(unauthenticated.headers.get("access-control-allow-credentials"), "true");
 
       const unauthorized = await fetch(`${origin}/api/admin/teachers`, {
         method: "POST",

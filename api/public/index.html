@@ -1688,9 +1688,10 @@
     <script>
       const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
       const localApiOrigin = "http://127.0.0.1:3000";
+      const renderApiOrigin = "https://classtrack-nobf.onrender.com";
       const apiOrigin = window.location.protocol === "file:" || (isLocalHost && window.location.port !== "3000")
         ? localApiOrigin
-        : "";
+        : renderApiOrigin;
 
       let students = [];
       let incidents = [];
@@ -1829,7 +1830,7 @@
             }
             response = await fetch(`${apiOrigin}${path}`, {
               method,
-              credentials: apiOrigin ? "include" : "same-origin",
+              credentials: "include",
               headers: options.body ? { "Content-Type": "application/json" } : undefined,
               body: options.body ? JSON.stringify(options.body) : undefined,
               signal: options.signal || controller.signal

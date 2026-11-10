@@ -29,12 +29,21 @@ if (process.env.NODE_ENV === "production" && !configuredPublicOrigin) {
   throw new Error("Set APP_ORIGIN to the public HTTPS origin of this deployment.");
 }
 const appOrigin = new URL(configuredPublicOrigin || `http://127.0.0.1:${port}`).origin;
-const frontendOrigins = new Set([appOrigin]);
+const frontendOrigins = new Set();
 for (const value of (process.env.FRONTEND_ORIGIN || "").split(",")) {
   const candidate = value.trim();
   if (!candidate) continue;
-  try { frontendOrigins.add(new URL(candidate).origin); }
+  try {
+    const origin = new URL(candidate);
+    if (origin.origin !== candidate || !["http:", "https:"].includes(origin.protocol)) {
+      throw new Error("Expected an origin without a path.");
+    }
+    frontendOrigins.add(origin.origin);
+  }
   catch { throw new Error(`Invalid frontend origin in FRONTEND_ORIGIN: ${candidate}`); }
+}
+if (process.env.NODE_ENV === "production" && frontendOrigins.size === 0) {
+  throw new Error("Set FRONTEND_ORIGIN to the exact public frontend origin.");
 }
 if (process.env.NODE_ENV !== "production") {
   frontendOrigins.add(`http://localhost:${port}`);
@@ -42,6 +51,7 @@ if (process.env.NODE_ENV !== "production") {
   frontendOrigins.add("http://localhost:8000");
   frontendOrigins.add("http://127.0.0.1:8000");
 }
+const trustedMutationOrigins = new Set([...frontendOrigins, appOrigin]);
 const isDevelopment = process.env.NODE_ENV !== "production";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const publicDirectory = path.join(root, "public");
@@ -131,7 +141,7 @@ function requireSameOrigin(request, response, next) {
     }
     return next();
   }
-  if (!isAllowedFrontendOrigin(origin, frontendOrigins, isDevelopment)) {
+  if (!isAllowedFrontendOrigin(origin, trustedMutationOrigins, isDevelopment)) {
     return response.status(403).json({ error: "Request origin is not allowed." });
   }
   return next();
@@ -355,23 +365,27 @@ app.post(
       return response.status(400).json({ error: "Nhập từ 1 đến 50 họ tên giáo viên, mỗi tên tối đa 120 ký tự." });
     }
     const normalizedNames = names.map((name) => name.trim());
-    const client = await pool.connect();
+    let client;
     const accounts = [];
     try {
+      client = await pool.connect();
       await client.query("BEGIN");
       for (const fullName of normalizedNames) {
         const stem = fullName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-          .replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "").slice(0, 20) || "giao.vien";
+          .replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "").slice(0, 12) || "giao.vien";
         const password = `Ct-${randomBytes(9).toString("base64url")}`;
         const passwordHash = await bcrypt.hash(password, 12);
         let username;
         let teacherId;
 
         for (let attempt = 0; attempt < 5; attempt++) {
-          username = `gv.${stem}.${randomBytes(8).toString("hex")}`;
+          username = `gv.${stem}.${randomBytes(8).toString("hex")}`.trim().toLowerCase();
           const inserted = await client.query(
-            `INSERT INTO users (username, password_hash, full_name, is_teacher)
-             VALUES ($1, $2, $3, TRUE)
+            `INSERT INTO users (
+               username, password_hash, full_name, is_active, is_teacher,
+               is_admin, is_super_admin, must_change_password, password_reset_expires_at
+             )
+             VALUES ($1, $2, $3, TRUE, TRUE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
              ON CONFLICT (username) DO NOTHING
              RETURNING id`,
             [username, passwordHash, fullName]
@@ -395,10 +409,13 @@ app.post(
       }
       await client.query("COMMIT");
     } catch (error) {
-      await client.query("ROLLBACK");
+      if (client) await client.query("ROLLBACK");
+      if (error.code === "TEACHER_USERNAME_COLLISION" || error.code === "23505") {
+        return response.status(409).json({ error: "Tên đăng nhập đã được sử dụng. Chưa tài khoản nào được tạo; vui lòng thử lại." });
+      }
       throw error;
     } finally {
-      client.release();
+      client?.release();
     }
     response.status(201).json({ accounts });
   })

@@ -22,29 +22,34 @@ function readCookie(request, name) {
 }
 
 export function setSessionCookie(response, token) {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  const isProduction = process.env.NODE_ENV === "production";
+  const secure = isProduction ? "; Secure" : "";
+  const sameSite = isProduction ? "None" : "Lax";
   response.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`
+    `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`
   );
 }
 
 export function clearSessionCookie(response) {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  response.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+  const isProduction = process.env.NODE_ENV === "production";
+  const secure = isProduction ? "; Secure" : "";
+  const sameSite = isProduction ? "None" : "Lax";
+  response.setHeader("Set-Cookie", `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`);
 }
 
 export async function login(username, password) {
   if (Buffer.byteLength(password, "utf8") > 72) {
     return null;
   }
+  const normalizedUsername = typeof username === "string" ? username.trim().toLowerCase() : "";
   const result = await pool.query(
     `SELECT users.id, users.username, users.full_name, users.password_hash, users.avatar_data,
             users.is_admin, users.is_super_admin, users.is_teacher, users.must_change_password,
             users.password_reset_expires_at,
             ARRAY(SELECT admin_permissions.permission_name FROM admin_permissions WHERE admin_permissions.user_id = users.id) AS admin_permissions
      FROM users WHERE users.username = $1 AND users.is_active = TRUE`,
-    [username]
+    [normalizedUsername]
   );
   const user = result.rows[0];
   if (!user?.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
