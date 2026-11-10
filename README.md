@@ -38,20 +38,21 @@ Pushing this repository to Git stores the source code; it does not run the websi
 
 ### Deploy from GitHub with Render
 
-The root `render.yaml` defines a paid Node.js web service and PostgreSQL database in the same region. The web service runs the root package with `npm install` and `npm start`, and checks `/health`. The PostgreSQL resource is retained in the Blueprint, but the minimal root server does not yet connect to it or run migrations. Review Render's current pricing before deploying; the Blueprint creates billable resources.
+The root `render.yaml` defines a paid Node.js web service and PostgreSQL database in the same region. The web service installs the root package, applies database migrations before each deploy, starts with `npm start`, and checks `/health`. Review Render's current pricing before deploying; the Blueprint creates billable resources.
 
 1. Push the repository to GitHub.
 2. In Render, choose **New > Blueprint**, connect the repository, and select the branch to deploy. Review the paid web and database resources before confirming.
-3. Wait for the first deployment to finish. Open the Render service URL. Confirm `/health` returns `{"ok":true}` and `/` serves the page. Sign-in and other data APIs remain unavailable in this minimal root server; do not create production accounts or treat a healthy `/health` response as proof that authentication works.
-4. To deploy the fuller PostgreSQL-backed implementation in `api/` instead, configure the Render service root directory as `api`, install with `npm install`, run `npm run db:migrate` as a pre-deploy step, and use `npm start`. Do not switch a service with existing production data without first reviewing its deployment settings and database.
+3. Configure `ADMIN_USERNAME` and `ADMIN_PASSWORD` as Render environment secrets. Use a unique password of 12–72 UTF-8 bytes.
+4. Wait for the deployment to finish. Open the Render service URL. Confirm `/health` returns `{"ok":true}` and `/` serves the page. Run `npm run db:seed` once from the Render Shell to create the initial Super Admin.
+5. To deploy the fuller PostgreSQL-backed implementation in `api/` instead, configure the Render service root directory as `api`, install with `npm install`, run `npm run db:migrate` as a pre-deploy step, and use `npm start`. Do not switch a service with existing production data without first reviewing its deployment settings and database.
 
-If using the `api/` implementation, create its first administrator from that service's **Shell**:
+For the `api/` implementation, run its production administrator seed from the service root directory (`api`) after migrations:
 
 ```sh
-ADMIN_USERNAME=admin ADMIN_FULL_NAME="ClassTrack Admin" ADMIN_PASSWORD='use-a-unique-long-password' npm run db:create-super-admin
+npm run db:seed:admin
 ```
 
-Replace the example password with a unique secret. Do not put it in `render.yaml`, GitHub, or source files. The script refuses to create a second Super Admin. Do not run `npm run db:seed` against a production database; it inserts demo class data.
+Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` as private environment variables. This command creates the Super Admin when absent and updates the password when the username already exists, so rerunning it resets that account's password. Do not put credentials in GitHub or source files. Do not run `npm run db:seed` against a production database; it inserts demo class data.
 
 ### Other Node.js hosts
 
@@ -66,7 +67,7 @@ Set these environment variables in the hosting provider's secret/configuration p
 
 The Blueprint generates a `SESSION_SECRET` environment value, but the current session implementation uses random opaque tokens whose hashes are stored in PostgreSQL and does not read that variable. Production cookies are HttpOnly, Secure, and SameSite=Lax. CORS is not needed for this same-origin setup; the API does not allow wildcard origins.
 
-After the first deployment has applied migrations, create the initial administrator once from the Render Shell in the service root directory (`api`). Supply `ADMIN_USERNAME`, `ADMIN_FULL_NAME`, and a unique `ADMIN_PASSWORD` of 12–72 UTF-8 bytes only for that command, then run `npm run db:create-super-admin`. This command refuses to run if a Super Admin already exists. Never run `npm run db:seed` on a real deployment; it creates demo class data. Never commit `.env`, database credentials, or administrator passwords to Git.
+After the first deployment has applied migrations, run `npm run db:seed:admin` in the service root directory (`api`) with `ADMIN_USERNAME` and a unique `ADMIN_PASSWORD` of 12–72 UTF-8 bytes set in the hosting provider's environment settings. Rerunning the command updates that account's password. Never run `npm run db:seed` on a real deployment; it creates demo class data. Never commit `.env`, database credentials, or administrator passwords to Git.
 
 ### Manual setup
 

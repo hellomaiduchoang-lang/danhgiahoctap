@@ -1,12 +1,12 @@
 services:
   - type: web
     name: classtrack
-    rootDir: api
     runtime: node
+    rootDir: api
     plan: starter
     region: singapore
     buildCommand: npm install
-    startCommand: npm run db:migrate && npm run db:seed && npm start
+    startCommand: npm run db:migrate && npm run db:seed:admin && npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

@@ -6,14 +6,22 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required.");
 }
 
+const databaseUrl = process.env.DATABASE_URL;
+const databaseHost = new URL(databaseUrl).hostname;
+const isLocalDatabase =
+  databaseHost === "localhost" ||
+  databaseHost === "127.0.0.1";
+
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: true } : undefined,
+  connectionString: databaseUrl,
+  ssl: isLocalDatabase 
+  ? false 
+  : { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000
+  connectionTimeoutMillis: 15_000
 });
 
-pool.on("error", (error) => {
-  console.error("Unexpected PostgreSQL pool error:", error);
+pool.on("error", () => {
+  console.error("Unexpected PostgreSQL pool error.");
 });

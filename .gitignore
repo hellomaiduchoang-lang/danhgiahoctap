@@ -9,3 +9,7 @@ api/node_modules/
 api/.classtrack-server.*.log
 npm-debug.log*
 cookies.txt
+
+/index.html
+
+/index.html
