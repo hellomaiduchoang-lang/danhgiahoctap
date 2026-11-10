@@ -343,39 +343,53 @@ app.get("/api/admin/teachers", requireAuthentication, requireAdminPermission("te
   response.json({ teachers: result.rows });
 }));
 
-app.post("/api/admin/teachers", requireAuthentication, requireSameOrigin, asyncRoute(async (request, response) => {
-  if (!request.user.isAdmin || (!request.user.isSuperAdmin && !request.user.adminPermissions?.includes("teachers:manage"))) {
-    return response.status(403).json({ error: "Tài khoản quản trị chưa được cấp quyền tạo giáo viên." });
-  }
-  const names = request.body?.teachers;
-  if (!Array.isArray(names) || names.length < 1 || names.length > 50 ||
-      names.some((name) => typeof name !== "string" || !name.trim() || name.trim().length > 120)) {
-    return response.status(400).json({ error: "Nhập từ 1 đến 50 họ tên giáo viên, mỗi tên tối đa 120 ký tự." });
-  }
-  const normalizedNames = names.map((name) => name.trim());
-  try {
+app.post(
+  "/api/admin/teachers",
+  requireAuthentication,
+  requireSameOrigin,
+  requireAdminPermission("teachers:manage"),
+  asyncRoute(async (request, response) => {
+    const names = request.body?.teachers;
+    if (!Array.isArray(names) || names.length < 1 || names.length > 50 ||
+        names.some((name) => typeof name !== "string" || !name.trim() || name.trim().length > 120)) {
+      return response.status(400).json({ error: "Nhập từ 1 đến 50 họ tên giáo viên, mỗi tên tối đa 120 ký tự." });
+    }
+    const normalizedNames = names.map((name) => name.trim());
     const client = await pool.connect();
     const accounts = [];
     try {
       await client.query("BEGIN");
       for (const fullName of normalizedNames) {
-        let username;
-        do {
-          const stem = fullName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-            .replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "").slice(0, 20) || "giao.vien";
-          username = `gv.${stem}.${randomBytes(3).toString("hex")}`;
-        } while ((await client.query("SELECT 1 FROM users WHERE username = $1", [username])).rowCount);
+        const stem = fullName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+          .replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "").slice(0, 20) || "giao.vien";
         const password = `Ct-${randomBytes(9).toString("base64url")}`;
         const passwordHash = await bcrypt.hash(password, 12);
-        await client.query(
-          "INSERT INTO users (username, password_hash, full_name, is_teacher) VALUES ($1, $2, $3, TRUE)",
-          [username, passwordHash, fullName]
-        );
-        const teacherId = await client.query("SELECT id FROM users WHERE username = $1", [username]);
+        let username;
+        let teacherId;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          username = `gv.${stem}.${randomBytes(8).toString("hex")}`;
+          const inserted = await client.query(
+            `INSERT INTO users (username, password_hash, full_name, is_teacher)
+             VALUES ($1, $2, $3, TRUE)
+             ON CONFLICT (username) DO NOTHING
+             RETURNING id`,
+            [username, passwordHash, fullName]
+          );
+          teacherId = inserted.rows[0]?.id;
+          if (teacherId) break;
+        }
+
+        if (!teacherId) {
+          const error = new Error("Could not generate a unique teacher username.");
+          error.code = "TEACHER_USERNAME_COLLISION";
+          throw error;
+        }
+
         await client.query(
           `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
            VALUES ($1, 'admin.teacher_created', 'user', $2, $3::jsonb)`,
-          [request.user.id, teacherId.rows[0].id, JSON.stringify({ username, fullName })]
+          [request.user.id, teacherId, JSON.stringify({ username, fullName })]
         );
         accounts.push({ fullName, username, password });
       }
@@ -387,10 +401,8 @@ app.post("/api/admin/teachers", requireAuthentication, requireSameOrigin, asyncR
       client.release();
     }
     response.status(201).json({ accounts });
-  } catch (error) {
-    throw error;
-  }
-}));
+  })
+);
 
 app.post("/api/admin/admins", requireAuthentication, requireSameOrigin, asyncRoute(async (request, response) => {
   if (!request.user.isAdmin || (!request.user.isSuperAdmin && !request.user.adminPermissions?.includes("admins:manage"))) {
