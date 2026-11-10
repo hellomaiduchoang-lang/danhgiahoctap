@@ -193,6 +193,13 @@ function requireAdminPermission(permission) {
   };
 }
 
+function requireAdminAccount(request, response, next) {
+  if (!request.user?.isAdmin && !request.user?.isSuperAdmin) {
+    return response.status(403).json({ error: "Chỉ Admin hoặc Super Admin mới được quản lý lớp." });
+  }
+  return next();
+}
+
 function requireSuperAdmin(request, response, next) {
   if (!request.user?.isSuperAdmin) return response.status(403).json({ error: "Chỉ Super Admin mới được quản lý quyền quản trị cấp cao." });
   return next();
@@ -1129,6 +1136,249 @@ app.post("/api/classes", requireAuthentication, requireSameOrigin, asyncRoute(as
     client.release();
   }
 }));
+
+app.get("/api/admin/classes", requireAuthentication, requireAdminAccount, asyncRoute(async (_request, response) => {
+  const result = await pool.query(
+    `SELECT classes.id,
+            classes.class_code,
+            classes.name AS class_name,
+            (
+              SELECT COUNT(DISTINCT class_members.user_id)::INT
+              FROM class_members
+              JOIN users ON users.id = class_members.user_id
+              JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+              JOIN roles ON roles.id = class_member_roles.role_id
+              WHERE class_members.class_id = classes.id
+                AND class_members.is_active = TRUE
+                AND users.is_active = TRUE
+                AND roles.name = 'ROLE_STUDENT'
+            ) AS student_count,
+            (
+              SELECT COUNT(DISTINCT class_members.user_id)::INT
+              FROM class_members
+              JOIN users ON users.id = class_members.user_id
+              JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+              JOIN roles ON roles.id = class_member_roles.role_id
+              WHERE class_members.class_id = classes.id
+                AND class_members.is_active = TRUE
+                AND users.is_active = TRUE
+                AND roles.name = 'ROLE_TEACHER'
+            ) AS teacher_count
+     FROM classes
+     ORDER BY classes.name, classes.academic_year, classes.id`
+  );
+  response.json({ classes: result.rows });
+}));
+
+app.get("/api/admin/classes/:classId/deletion-preview", requireAuthentication, requireAdminAccount,
+  asyncRoute(async (request, response) => {
+    if (!UUID_PATTERN.test(request.params.classId)) {
+      return response.status(400).json({ error: "Mã lớp không hợp lệ." });
+    }
+    const classResult = await pool.query(
+      `SELECT id, class_code, name AS class_name, academic_year
+       FROM classes WHERE id = $1`,
+      [request.params.classId]
+    );
+    if (!classResult.rowCount) return response.status(404).json({ error: "Không tìm thấy lớp." });
+
+    const countsResult = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::INT FROM class_members WHERE class_id = $1) AS memberships,
+         (SELECT COUNT(DISTINCT class_members.user_id)::INT
+          FROM class_members
+          JOIN users ON users.id = class_members.user_id
+          JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+          JOIN roles ON roles.id = class_member_roles.role_id
+          WHERE class_members.class_id = $1 AND class_members.is_active = TRUE
+            AND users.is_active = TRUE AND roles.name = 'ROLE_STUDENT') AS students,
+         (SELECT COUNT(DISTINCT class_members.user_id)::INT
+          FROM class_members
+          JOIN users ON users.id = class_members.user_id
+          JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+          JOIN roles ON roles.id = class_member_roles.role_id
+          WHERE class_members.class_id = $1 AND class_members.is_active = TRUE
+            AND users.is_active = TRUE AND roles.name = 'ROLE_TEACHER') AS teachers,
+         (SELECT COUNT(*)::INT FROM class_member_roles WHERE class_id = $1) AS member_roles,
+         (SELECT COUNT(*)::INT FROM member_permissions WHERE class_id = $1) AS member_permissions,
+         (SELECT COUNT(*)::INT FROM role_requests WHERE class_id = $1) AS role_requests,
+         (SELECT COUNT(*)::INT FROM class_groups WHERE class_id = $1) AS groups,
+         (SELECT COUNT(*)::INT FROM group_members WHERE class_id = $1) AS group_members,
+         (SELECT COUNT(*)::INT FROM conduct_categories WHERE class_id = $1) AS conduct_categories,
+         (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1) AS conduct_records,
+         (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'positive') AS positive_records,
+         (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'negative') AS violations,
+         (SELECT COALESCE(SUM(points), 0)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'positive') AS positive_points,
+         (SELECT COALESCE(SUM(points), 0)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'negative') AS negative_points,
+         (SELECT COUNT(*)::INT FROM evidence_files WHERE class_id = $1) AS evidence_files,
+         (SELECT COUNT(*)::INT FROM class_forum_posts WHERE class_id = $1) AS forum_posts,
+         (SELECT COUNT(*)::INT FROM class_weekly_point_periods WHERE class_id = $1) AS weekly_periods,
+         (SELECT COUNT(*)::INT FROM class_weekly_point_scores WHERE class_id = $1) AS weekly_scores,
+         (SELECT COUNT(*)::INT FROM audit_logs WHERE class_id = $1) AS retained_audit_logs`,
+      [request.params.classId]
+    );
+    response.json({
+      class: classResult.rows[0],
+      relatedCounts: countsResult.rows[0]
+    });
+  }));
+
+app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrigin, requireAdminAccount,
+  asyncRoute(async (request, response) => {
+    if (!UUID_PATTERN.test(request.params.classId)) {
+      return response.status(400).json({ error: "Mã lớp không hợp lệ." });
+    }
+    if (typeof request.body?.confirmClassCode !== "string" ||
+        typeof request.body?.confirmText !== "string" ||
+        request.body.confirmText !== "DELETE CLASS") {
+      return response.status(400).json({ error: "Cần nhập đúng mã lớp và nội dung xác nhận DELETE CLASS." });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const classResult = await client.query(
+        `SELECT id, class_code, name AS class_name
+         FROM classes WHERE id = $1 FOR UPDATE`,
+        [request.params.classId]
+      );
+      if (!classResult.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(404).json({ error: "Không tìm thấy lớp." });
+      }
+      const classInfo = classResult.rows[0];
+      if (!classInfo.class_code || request.body.confirmClassCode !== classInfo.class_code) {
+        await client.query("ROLLBACK");
+        return response.status(409).json({ error: "Mã xác nhận không khớp chính xác với mã lớp." });
+      }
+
+      await client.query(
+        `SELECT class_members.id
+         FROM class_members
+         JOIN users ON users.id = class_members.user_id
+         WHERE class_members.class_id = $1
+         FOR UPDATE OF class_members, users`,
+        [request.params.classId]
+      );
+      const orphanStudentResult = await client.query(
+        `SELECT DISTINCT users.id
+         FROM class_members
+         JOIN users ON users.id = class_members.user_id
+         JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+         JOIN roles ON roles.id = class_member_roles.role_id
+         WHERE class_members.class_id = $1
+           AND roles.name = 'ROLE_STUDENT'
+           AND users.student_number IS NOT NULL
+           AND users.is_teacher = FALSE
+           AND users.is_admin = FALSE
+           AND users.is_super_admin = FALSE
+           AND NOT EXISTS (
+             SELECT 1 FROM class_members AS other_memberships
+             WHERE other_memberships.user_id = users.id
+               AND other_memberships.class_id <> $1
+           )`,
+        [request.params.classId]
+      );
+      const orphanStudentIds = orphanStudentResult.rows.map((row) => row.id);
+      const sharedUsersResult = await client.query(
+        `SELECT COUNT(DISTINCT class_members.user_id)::INT AS count
+         FROM class_members
+         WHERE class_members.class_id = $1
+           AND EXISTS (
+             SELECT 1 FROM class_members AS other_memberships
+             WHERE other_memberships.user_id = class_members.user_id
+               AND other_memberships.class_id <> $1
+           )`,
+        [request.params.classId]
+      );
+      const keptSharedUsers = sharedUsersResult.rows[0]?.count || 0;
+      const deletedRelations = {};
+      const relationDeletes = [
+        ["evidence_files", "DELETE FROM evidence_files WHERE class_id = $1"],
+        ["weekly_scores", "DELETE FROM class_weekly_point_scores WHERE class_id = $1"],
+        ["weekly_periods", "DELETE FROM class_weekly_point_periods WHERE class_id = $1"],
+        ["conduct_records", "DELETE FROM conduct_records WHERE class_id = $1"],
+        ["forum_posts", "DELETE FROM class_forum_posts WHERE class_id = $1"],
+        ["group_members", "DELETE FROM group_members WHERE class_id = $1"],
+        ["role_requests", "DELETE FROM role_requests WHERE class_id = $1"],
+        ["member_permissions", "DELETE FROM member_permissions WHERE class_id = $1"],
+        ["member_roles", "DELETE FROM class_member_roles WHERE class_id = $1"],
+        ["groups", "DELETE FROM class_groups WHERE class_id = $1"],
+        ["conduct_categories", "DELETE FROM conduct_categories WHERE class_id = $1"]
+      ];
+      for (const [relation, sql] of relationDeletes) {
+        const result = await client.query(sql, [request.params.classId]);
+        deletedRelations[relation] = result.rowCount;
+      }
+
+      const memberships = await client.query(
+        "DELETE FROM class_members WHERE class_id = $1",
+        [request.params.classId]
+      );
+      deletedRelations.class_members = memberships.rowCount;
+
+      let deletedStudents = 0;
+      if (orphanStudentIds.length) {
+        const sessions = await client.query(
+          "DELETE FROM auth_sessions WHERE user_id = ANY($1::uuid[])",
+          [orphanStudentIds]
+        );
+        deletedRelations.auth_sessions = sessions.rowCount;
+        const students = await client.query(
+          `DELETE FROM users
+           WHERE id = ANY($1::uuid[])
+             AND is_teacher = FALSE
+             AND is_admin = FALSE
+             AND is_super_admin = FALSE
+           RETURNING id`,
+          [orphanStudentIds]
+        );
+        deletedStudents = students.rowCount;
+      } else {
+        deletedRelations.auth_sessions = 0;
+      }
+
+      await audit(client, {
+        classId: request.params.classId,
+        actorUserId: request.user.id,
+        action: "admin.class_deleted",
+        targetType: "class",
+        targetId: request.params.classId,
+        details: {
+          classCode: classInfo.class_code,
+          className: classInfo.class_name,
+          deletedRelations,
+          deletedStudents,
+          keptSharedUsers
+        }
+      });
+      const deletedClassResult = await client.query(
+        "DELETE FROM classes WHERE id = $1 RETURNING id",
+        [request.params.classId]
+      );
+      if (!deletedClassResult.rowCount) {
+        const error = new Error("Class disappeared during deletion.");
+        error.code = "CLASS_DELETE_RACE";
+        throw error;
+      }
+      await client.query("COMMIT");
+      response.json({
+        deletedClass: {
+          id: classInfo.id,
+          class_code: classInfo.class_code,
+          class_name: classInfo.class_name
+        },
+        deletedRelations,
+        deletedStudents,
+        keptSharedUsers
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
 
 app.get("/api/classes/:classId/students", requireAuthentication, classPermission("classes:read"), asyncRoute(async (request, response) => {
   if (request.user.isAdmin) return response.status(403).json({ error: "Tài khoản quản trị chỉ được xem số liệu tổng hợp, không xem danh sách học sinh." });
