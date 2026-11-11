@@ -136,9 +136,11 @@ export async function loadClassAccess(userId, classId) {
               WHERE member_permissions.class_member_id = class_members.id
             ) AS permissions
      FROM class_members
+     JOIN classes ON classes.id = class_members.class_id
      WHERE class_members.user_id = $1
        AND class_members.class_id = $2
-       AND class_members.is_active = TRUE`,
+       AND class_members.is_active = TRUE
+       AND classes.is_active = TRUE`,
     [userId, classId]
   );
   const access = result.rows[0];

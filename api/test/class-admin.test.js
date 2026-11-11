@@ -64,7 +64,7 @@ function account({ isAdmin, isSuperAdmin = false } = {}) {
     fullName: isAdmin ? "Class Admin" : "Class Teacher",
     isAdmin,
     isSuperAdmin,
-    isTeacher: !isAdmin,
+    isTeacher: !isAdmin && !isSuperAdmin,
     mustChangePassword: false,
     adminPermissions: []
   };
@@ -123,7 +123,7 @@ test("class admin endpoints reject teachers", async () => {
   const database = installDatabaseMock({ user: account({ isAdmin: false }) });
   try {
     await withServer(async (origin) => {
-      const response = await fetch(`${origin}/api/admin/classes/${classId}/deletion-preview`, {
+      const response = await fetch(`${origin}/api/admin/classes/${classId}/preview`, {
         headers: requestHeaders(adminCookie)
       });
       assert.equal(response.status, 403);
@@ -160,6 +160,54 @@ test("Admin class list returns class identifiers and member counts", async () =>
   }
 });
 
+test("Admin class detail includes assigned teachers and status without sensitive user fields", async () => {
+  const detail = {
+    id: classId,
+    class_code: "TEST-01",
+    class_name: "Test Class",
+    academic_year: "2026-2027",
+    is_active: true,
+    teachers: [{ id: "00000000-0000-4000-8000-000000000030", username: "teacher.one", fullName: "Teacher One" }],
+    studentCount: 2
+  };
+  const database = installDatabaseMock({
+    user: account({ isAdmin: true }),
+    poolQuery: async (sql) => sql.includes("jsonb_build_object")
+      ? { rows: [detail], rowCount: 1 }
+      : { rows: [], rowCount: 0 }
+  });
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/admin/classes/${classId}`, {
+        headers: requestHeaders(adminCookie)
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.deepEqual(body.class, detail);
+      assert.equal(JSON.stringify(body).includes("password_hash"), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("ordinary Admin cannot permanently delete a class", async () => {
+  const database = installDatabaseMock({ user: account({ isAdmin: true }) });
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/admin/classes/${classId}`, {
+        method: "DELETE",
+        headers: { ...requestHeaders(adminCookie), "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmClassCode: "TEST-01", confirmText: "DELETE CLASS" })
+      });
+      assert.equal(response.status, 403);
+      assert.equal(database.statements.some(({ sql }) => sql === "BEGIN"), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
 test("Admin can preview class data without deleting anything", async () => {
   const database = installDatabaseMock({
     user: account({ isAdmin: true }),
@@ -189,7 +237,7 @@ test("Admin can preview class data without deleting anything", async () => {
 
 test("class deletion requires the exact class code confirmation", async () => {
   const database = installDatabaseMock({
-    user: account({ isAdmin: true }),
+    user: account({ isAdmin: true, isSuperAdmin: true }),
     clientQuery: async (sql) => {
       if (sql.includes("FROM classes WHERE id = $1 FOR UPDATE")) return { rows: [classRecord()], rowCount: 1 };
       return { rows: [], rowCount: 0 };
@@ -214,7 +262,7 @@ test("class deletion requires the exact class code confirmation", async () => {
 test("Admin can delete a test class and shared users remain untouched", async () => {
   const orphanStudentId = "00000000-0000-4000-8000-000000000040";
   const database = installDatabaseMock({
-    user: account({ isAdmin: true }),
+    user: account({ isAdmin: true, isSuperAdmin: true }),
     clientQuery: async (sql) => {
       if (sql.includes("FROM classes WHERE id = $1 FOR UPDATE")) return { rows: [classRecord()], rowCount: 1 };
       if (sql.includes("SELECT class_members.id FROM class_members")) return { rows: [], rowCount: 3 };
@@ -260,7 +308,7 @@ test("Admin can delete a test class and shared users remain untouched", async ()
 
 test("class deletion rolls back when a relation delete fails", async () => {
   const database = installDatabaseMock({
-    user: account({ isAdmin: true }),
+    user: account({ isAdmin: true, isSuperAdmin: true }),
     clientQuery: async (sql) => {
       if (sql.includes("FROM classes WHERE id = $1 FOR UPDATE")) return { rows: [classRecord()], rowCount: 1 };
       if (sql.includes("SELECT DISTINCT users.id")) return { rows: [], rowCount: 0 };

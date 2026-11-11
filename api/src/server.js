@@ -187,7 +187,9 @@ function parseStudentImportFile(request, response, next) {
 
 function requireAdminPermission(permission) {
   return (request, response, next) => {
-    if (!request.user?.isAdmin) return response.status(403).json({ error: "Chỉ tài khoản quản trị mới được thực hiện thao tác này." });
+    if (!request.user?.isAdmin && !request.user?.isSuperAdmin) {
+      return response.status(403).json({ error: "Chỉ tài khoản quản trị mới được thực hiện thao tác này." });
+    }
     if (request.user.isSuperAdmin || request.user.adminPermissions?.includes(permission)) return next();
     return response.status(403).json({ error: "Tài khoản quản trị chưa được cấp quyền cho thao tác này." });
   };
@@ -309,6 +311,23 @@ app.post(
     const headers = (Array.isArray(rows[0]) ? rows[0] : []).map((value) =>
       String(value ?? "").replace(/^\uFEFF/, "").trim().toLowerCase()
     );
+    const privilegedColumns = ["is_admin", "is_teacher", "is_super_admin"];
+    const suppliedPrivilegedColumns = headers.filter((header) => privilegedColumns.includes(header));
+    if (suppliedPrivilegedColumns.length) {
+      return response.status(400).json({
+        error: "Tệp không được chứa các cột phân quyền tài khoản.",
+        report
+      });
+    }
+    const unknownColumns = [...new Set(headers.filter((header) =>
+      header && !["username", "full_name", "student_code", "class_code", "password"].includes(header)
+    ))];
+    if (unknownColumns.length || new Set(headers.filter(Boolean)).size !== headers.filter(Boolean).length) {
+      return response.status(400).json({
+        error: "Tệp có tên cột không được hỗ trợ hoặc bị lặp.",
+        report
+      });
+    }
     const columnIndexes = Object.fromEntries(requiredColumns.map((column) => [column, headers.indexOf(column)]));
     const missingColumns = requiredColumns.filter((column) => columnIndexes[column] < 0);
     if (missingColumns.length) {
@@ -420,7 +439,8 @@ app.post(
                   AND class_members.is_active = TRUE
               ) AS permissions
        FROM classes
-       WHERE LOWER(BTRIM(classes.class_code)) = ANY($1::text[])`,
+       WHERE classes.is_active = TRUE
+         AND LOWER(BTRIM(classes.class_code)) = ANY($1::text[])`,
       [classCodes, request.user.id]
     );
     const classesByCode = new Map(classResult.rows.map((row) => [row.classCode.toLowerCase(), row]));
@@ -494,57 +514,73 @@ app.post(
 
     const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-      for (const student of insertRows) {
-        const insertedUser = await client.query(
-          `INSERT INTO users (
-             username, password_hash, full_name, student_number, is_active, is_teacher,
-             is_admin, is_super_admin, must_change_password, password_reset_expires_at
-           )
-           VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
-           ON CONFLICT DO NOTHING
-           RETURNING id`,
-          [student.username, student.passwordHash, student.fullName, student.studentCode]
-        );
-        if (!insertedUser.rowCount) {
-          report.skipped++;
-          report.errors.push({
-            row: student.row,
-            field: "username",
-            code: "DUPLICATE_IN_DATABASE",
-            message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
-          });
-          continue;
-        }
+      for (let offset = 0; offset < insertRows.length; offset += 50) {
+        const batch = insertRows.slice(offset, offset + 50);
+        const batchErrors = [];
+        let batchCreated = 0;
+        let batchSkipped = 0;
+        await client.query("BEGIN");
+        try {
+          for (const student of batch) {
+            const insertedUser = await client.query(
+              `INSERT INTO users (
+                 username, password_hash, full_name, student_number, is_active, is_teacher,
+                 is_admin, is_super_admin, must_change_password, password_reset_expires_at
+               )
+               VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
+               ON CONFLICT DO NOTHING
+               RETURNING id`,
+              [student.username, student.passwordHash, student.fullName, student.studentCode]
+            );
+            if (!insertedUser.rowCount) {
+              batchSkipped++;
+              batchErrors.push({
+                row: student.row,
+                field: "username",
+                code: "DUPLICATE_IN_DATABASE",
+                message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
+              });
+              continue;
+            }
 
-        const membership = await client.query(
-          "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
-          [student.classroom.id, insertedUser.rows[0].id]
-        );
-        const assignedRole = await client.query(
-          `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
-           SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
-          [student.classroom.id, membership.rows[0].id, student.classroom.teacherMemberId]
-        );
-        if (assignedRole.rowCount !== 1) {
-          const error = new Error("Student role is not configured.");
-          error.code = "STUDENT_ROLE_NOT_CONFIGURED";
+            const membership = await client.query(
+              "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
+              [student.classroom.id, insertedUser.rows[0].id]
+            );
+            const assignedRole = await client.query(
+              `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
+               SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
+              [student.classroom.id, membership.rows[0].id, student.classroom.teacherMemberId]
+            );
+            if (assignedRole.rowCount !== 1) {
+              const error = new Error("Student role is not configured.");
+              error.code = "STUDENT_ROLE_NOT_CONFIGURED";
+              throw error;
+            }
+            await audit(client, {
+              classId: student.classroom.id,
+              actorUserId: request.user.id,
+              action: "IMPORT_STUDENTS",
+              targetType: "user",
+              targetId: insertedUser.rows[0].id,
+              details: {
+                username: student.username,
+                studentNumber: student.studentCode,
+                classCode: student.classroom.classCode,
+                ip: request.ip
+              }
+            });
+            batchCreated++;
+          }
+          await client.query("COMMIT");
+          report.created += batchCreated;
+          report.skipped += batchSkipped;
+          report.errors.push(...batchErrors);
+        } catch (error) {
+          await client.query("ROLLBACK");
           throw error;
         }
-        await audit(client, {
-          classId: student.classroom.id,
-          actorUserId: request.user.id,
-          action: "teacher.student_imported",
-          targetType: "user",
-          targetId: insertedUser.rows[0].id,
-          details: { username: student.username, studentNumber: student.studentCode, classCode: student.classroom.classCode }
-        });
-        report.created++;
       }
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
     } finally {
       client.release();
     }
@@ -730,8 +766,8 @@ app.post(
 
         await client.query(
           `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
-           VALUES ($1, 'admin.teacher_created', 'user', $2, $3::jsonb)`,
-          [request.user.id, teacherId, JSON.stringify({ username, fullName })]
+           VALUES ($1, 'CREATE_USER', 'user', $2, $3::jsonb)`,
+          [request.user.id, teacherId, JSON.stringify({ username, fullName, role: "teacher", ip: request.ip })]
         );
         accounts.push({ fullName, username, password });
       }
@@ -760,28 +796,43 @@ app.post("/api/admin/admins", requireAuthentication, requireSameOrigin, asyncRou
       typeof password !== "string" || password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
     return response.status(400).json({ error: "Thông tin tài khoản quản trị không hợp lệ." });
   }
+  const client = await pool.connect();
   try {
     const passwordHash = await bcrypt.hash(password, 12);
-    const created = await pool.query(
+    await client.query("BEGIN");
+    const created = await client.query(
       "INSERT INTO users (username, password_hash, full_name, is_admin) VALUES ($1, $2, $3, TRUE) RETURNING id",
       [username, passwordHash, fullName.trim()]
     );
-    await pool.query(
+    await client.query(
       `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
-       VALUES ($1, 'admin.admin_created', 'user', $2, $3::jsonb)`,
-      [request.user.id, created.rows[0].id, JSON.stringify({ username, fullName: fullName.trim() })]
+       VALUES ($1, 'CREATE_USER', 'user', $2, $3::jsonb)`,
+      [request.user.id, created.rows[0].id, JSON.stringify({ username, fullName: fullName.trim(), role: "admin", ip: request.ip })]
     );
+    await client.query("COMMIT");
     response.status(201).json({ username, fullName: fullName.trim() });
   } catch (error) {
+    await client.query("ROLLBACK");
     if (error.code === "23505") return response.status(409).json({ error: "Tên đăng nhập đã được sử dụng." });
     throw error;
-  }
+  } finally { client.release(); }
 }));
 
-app.get("/api/admin/accounts", requireAuthentication, requireAdminPermission("accounts:manage"), asyncRoute(async (request, response) => {
-  const query = typeof request.query.q === "string" ? request.query.q.trim().slice(0, 120) : "";
-  const type = typeof request.query.type === "string" ? request.query.type : "";
+app.get(
+  ["/api/admin/users", "/api/admin/accounts"],
+  requireAuthentication,
+  requireAdminPermission("accounts:manage"),
+  asyncRoute(async (request, response) => {
+  const query = typeof (request.query.search ?? request.query.q) === "string"
+    ? (request.query.search ?? request.query.q).trim().slice(0, 120)
+    : "";
+  const type = typeof (request.query.role ?? request.query.type) === "string"
+    ? request.query.role ?? request.query.type
+    : "";
   const status = typeof request.query.status === "string" ? request.query.status : "";
+  const page = request.query.page === undefined ? 1 : Number(request.query.page);
+  const pageSize = request.query.pageSize === undefined ? 25 : Number(request.query.pageSize);
+  const classId = typeof request.query.classId === "string" ? request.query.classId : "";
   const parseDateFilter = (value) => {
     if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
     const date = new Date(`${value}T00:00:00.000Z`);
@@ -792,73 +843,167 @@ app.get("/api/admin/accounts", requireAuthentication, requireAdminPermission("ac
   if ((request.query.from && !from) || (request.query.to && !to)) {
     return response.status(400).json({ error: "Ngày lọc tài khoản không hợp lệ." });
   }
+  if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+    return response.status(400).json({ error: "Thông tin phân trang không hợp lệ; pageSize tối đa là 100." });
+  }
   if (type && !["student", "teacher", "admin", "super_admin"].includes(type)) {
     return response.status(400).json({ error: "Loại tài khoản lọc không hợp lệ." });
   }
-  if (status && !["active", "locked"].includes(status)) {
+  if (status && !["active", "inactive", "locked"].includes(status)) {
     return response.status(400).json({ error: "Trạng thái tài khoản lọc không hợp lệ." });
   }
+  if (classId && !UUID_PATTERN.test(classId)) {
+    return response.status(400).json({ error: "Mã lớp không hợp lệ." });
+  }
+
+  const conditions = [];
+  const parameters = [];
+  const bind = (value) => {
+    parameters.push(value);
+    return `$${parameters.length}`;
+  };
+  if (query) {
+    const value = bind(`%${query}%`);
+    conditions.push(`(users.username ILIKE ${value} OR users.full_name ILIKE ${value})`);
+  }
+  if (type) {
+    const value = bind(type);
+    conditions.push(`CASE WHEN users.is_super_admin THEN 'super_admin'
+                          WHEN users.is_admin THEN 'admin'
+                          WHEN users.is_teacher THEN 'teacher'
+                          WHEN users.student_number IS NOT NULL THEN 'student'
+                          ELSE 'user' END = ${value}`);
+  }
+  if (status) conditions.push(`users.is_active = ${bind(status === "active")}`);
+  if (classId) {
+    const value = bind(classId);
+    conditions.push(`EXISTS (SELECT 1 FROM class_members cm WHERE cm.user_id = users.id AND cm.class_id = ${value})`);
+  }
+  if (from) conditions.push(`users.created_at >= ${bind(from)}::date`);
+  if (to) conditions.push(`users.created_at < ${bind(to)}::date + INTERVAL '1 day'`);
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const countResult = await pool.query(`SELECT COUNT(*)::INT AS total FROM users ${whereClause}`, parameters);
+  const total = countResult.rows[0].total;
+  const offset = (page - 1) * pageSize;
+  if (!Number.isSafeInteger(offset)) {
+    return response.status(400).json({ error: "Số trang vượt quá giới hạn." });
+  }
+  const limitPlaceholder = bind(pageSize);
+  const offsetPlaceholder = bind(offset);
   const result = await pool.query(
     `SELECT users.id, users.username, users.full_name AS "fullName",
             users.is_active AS "isActive", users.must_change_password AS "mustChangePassword",
-            users.is_super_admin AS "isSuperAdmin",
+            users.is_admin AS "isAdmin", users.is_super_admin AS "isSuperAdmin",
             ARRAY(SELECT admin_permissions.permission_name FROM admin_permissions WHERE admin_permissions.user_id = users.id) AS "adminPermissions",
             users.created_at AS "createdAt",
+            (SELECT COUNT(DISTINCT cm.class_id)::INT FROM class_members cm WHERE cm.user_id = users.id) AS "classCount",
+            (SELECT COUNT(DISTINCT cr.id)::INT FROM conduct_records cr
+             JOIN class_members cm ON cm.id IN (cr.student_member_id, cr.recorder_member_id)
+             WHERE cm.user_id = users.id) AS "relatedRecordCount",
             CASE WHEN users.is_super_admin THEN 'super_admin'
                  WHEN users.is_admin THEN 'admin'
                  WHEN users.is_teacher THEN 'teacher'
                  WHEN users.student_number IS NOT NULL THEN 'student'
                  ELSE 'user' END AS type
      FROM users
-     WHERE ($1 = '' OR users.username ILIKE '%' || $1 || '%' OR users.full_name ILIKE '%' || $1 || '%')
-       AND ($2 = '' OR CASE WHEN users.is_super_admin THEN 'super_admin'
-                            WHEN users.is_admin THEN 'admin'
-                            WHEN users.is_teacher THEN 'teacher'
-                            WHEN users.student_number IS NOT NULL THEN 'student'
-                            ELSE 'user' END = $2)
-       AND ($3 = '' OR ($3 = 'active' AND users.is_active) OR ($3 = 'locked' AND NOT users.is_active))
-       AND ($4::date IS NULL OR users.created_at >= $4::date)
-       AND ($5::date IS NULL OR users.created_at < $5::date + INTERVAL '1 day')
+     ${whereClause}
      ORDER BY users.created_at DESC, users.id
-     LIMIT 250`,
-    [query, type, status, from, to]
+     LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
+    parameters
   );
-  response.json({ accounts: result.rows });
+  response.json({
+    users: result.rows,
+    accounts: result.rows,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize)
+  });
 }));
 
-app.patch("/api/admin/accounts/:accountId/status", requireAuthentication, requireSameOrigin,
-  requireAdminPermission("accounts:manage"), asyncRoute(async (request, response) => {
-    if (!UUID_PATTERN.test(request.params.accountId) || typeof request.body?.isActive !== "boolean") {
-      return response.status(400).json({ error: "Thông tin trạng thái tài khoản không hợp lệ." });
-    }
-    if (request.params.accountId === request.user.id) return response.status(400).json({ error: "Không thể khóa chính tài khoản đang sử dụng." });
-    const target = await pool.query("SELECT is_super_admin FROM users WHERE id = $1", [request.params.accountId]);
-    if (!target.rowCount) return response.status(404).json({ error: "Không tìm thấy tài khoản." });
-    if (target.rows[0].is_super_admin && !request.user.isSuperAdmin) {
-      return response.status(403).json({ error: "Chỉ Super Admin mới được khóa hoặc mở khóa tài khoản Super Admin." });
-    }
-    if (!request.body.isActive && target.rows[0].is_super_admin) {
-      const remaining = await pool.query("SELECT COUNT(*)::int AS count FROM users WHERE is_super_admin AND is_active AND id <> $1", [request.params.accountId]);
-      if (!remaining.rows[0].count) return response.status(400).json({ error: "Hệ thống phải luôn còn ít nhất một Super Admin đang hoạt động." });
-    }
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const updated = await client.query("UPDATE users SET is_active = $2 WHERE id = $1 RETURNING username", [request.params.accountId, request.body.isActive]);
-      if (!request.body.isActive) await client.query("DELETE FROM auth_sessions WHERE user_id = $1", [request.params.accountId]);
-      await client.query(
-        `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
-         VALUES ($1, $2, 'user', $3, $4::jsonb)`,
-        [request.user.id, request.body.isActive ? "admin.account_unlocked" : "admin.account_locked", request.params.accountId,
-          JSON.stringify({ username: updated.rows[0].username, isActive: request.body.isActive })]
-      );
-      await client.query("COMMIT");
-      response.json({ isActive: request.body.isActive });
-    } catch (error) {
+const updateAdminUserStatus = asyncRoute(async (request, response) => {
+  const userId = request.params.userId || request.params.accountId;
+  const isActive = request.body?.isActive;
+  const expectedConfirmation = isActive === false ? "DISABLE ACCOUNT" : "ENABLE ACCOUNT";
+  if (!UUID_PATTERN.test(userId) || typeof isActive !== "boolean" ||
+      request.body?.confirmText !== expectedConfirmation ||
+      (isActive === false && typeof request.body?.confirmUsername !== "string")) {
+    return response.status(400).json({ error: "Mã tài khoản hoặc nội dung xác nhận trạng thái không hợp lệ." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(7319, 1)");
+    const target = await client.query(
+      `SELECT id, username, is_admin, is_super_admin, is_active
+       FROM users WHERE id = $1 FOR UPDATE`,
+      [userId]
+    );
+    if (!target.rowCount) {
       await client.query("ROLLBACK");
-      throw error;
-    } finally { client.release(); }
-  }));
+      return response.status(404).json({ error: "Không tìm thấy tài khoản." });
+    }
+
+    const account = target.rows[0];
+    if (!isActive && request.body.confirmUsername !== account.username) {
+      await client.query("ROLLBACK");
+      return response.status(400).json({ error: "Tên đăng nhập xác nhận không khớp." });
+    }
+    if (account.is_super_admin && !request.user.isSuperAdmin) {
+      await client.query("ROLLBACK");
+      return response.status(403).json({ error: "Chỉ Super Admin mới được thay đổi trạng thái tài khoản Super Admin." });
+    }
+    if (!isActive && account.is_super_admin) {
+      const activeSuperAdmins = await client.query(
+        "SELECT COUNT(*)::INT AS count FROM users WHERE is_super_admin = TRUE AND is_active = TRUE"
+      );
+      if (activeSuperAdmins.rows[0].count <= 1) {
+        await client.query("ROLLBACK");
+        return response.status(409).json({ error: "Không thể vô hiệu hóa Super Admin đang hoạt động cuối cùng." });
+      }
+    }
+
+    const updated = await client.query(
+      "UPDATE users SET is_active = $2 WHERE id = $1 RETURNING id, username, is_active",
+      [userId, isActive]
+    );
+    let revokedSessions = 0;
+    if (!isActive) {
+      const sessions = await client.query("DELETE FROM auth_sessions WHERE user_id = $1", [userId]);
+      revokedSessions = sessions.rowCount;
+    }
+    await client.query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
+       VALUES ($1, $2, 'user', $3, $4::jsonb)`,
+      [request.user.id, isActive ? "ENABLE_USER" : "DISABLE_USER", userId,
+        JSON.stringify({
+          username: updated.rows[0].username,
+          isActive,
+          revokedSessions,
+          ip: request.ip
+        })]
+    );
+    await client.query("COMMIT");
+    response.json({ userId: updated.rows[0].id, isActive: updated.rows[0].is_active, revokedSessions });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (["23503", "23505", "23514", "23P01"].includes(error.code)) {
+      return response.status(409).json({ error: "Không thể thay đổi trạng thái tài khoản do ràng buộc dữ liệu." });
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+});
+
+app.patch(
+  ["/api/admin/users/:userId/status", "/api/admin/accounts/:accountId/status"],
+  requireAuthentication,
+  requireSameOrigin,
+  requireAdminPermission("accounts:manage"),
+  updateAdminUserStatus
+);
 
 app.post("/api/admin/accounts/:accountId/password-reset", requireAuthentication, requireSameOrigin,
   requireAdminPermission("accounts:manage"), asyncRoute(async (request, response) => {
@@ -881,8 +1026,8 @@ app.post("/api/admin/accounts/:accountId/password-reset", requireAuthentication,
       await client.query("DELETE FROM auth_sessions WHERE user_id = $1", [request.params.accountId]);
       await client.query(
         `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
-         VALUES ($1, 'admin.password_reset', 'user', $2, $3::jsonb)`,
-        [request.user.id, request.params.accountId, JSON.stringify({ username: target.rows[0].username, sessionsRevoked: true })]
+         VALUES ($1, 'RESET_PASSWORD', 'user', $2, $3::jsonb)`,
+        [request.user.id, request.params.accountId, JSON.stringify({ username: target.rows[0].username, sessionsRevoked: true, ip: request.ip })]
       );
       await client.query("COMMIT");
       response.json({ username: target.rows[0].username, temporaryPassword });
@@ -1000,6 +1145,8 @@ app.get("/api/admin/audit", requireAuthentication, requireAdminPermission("audit
             audit_logs.created_at AS "createdAt", actor.username AS "actorUsername", actor.full_name AS "actorName"
      FROM audit_logs LEFT JOIN users AS actor ON actor.id = audit_logs.actor_user_id
      WHERE audit_logs.action LIKE 'admin.%' OR audit_logs.action IN (
+       'CREATE_USER', 'DISABLE_USER', 'ENABLE_USER', 'RESET_PASSWORD',
+       'CREATE_CLASS', 'DISABLE_CLASS', 'DELETE_CLASS', 'IMPORT_STUDENTS',
        'class.leadership_updated', 'class.group_saved', 'class.group_member_moved',
        'student.removed_from_class', 'conduct.weekly_scores_archived'
      )
@@ -1009,15 +1156,22 @@ app.get("/api/admin/audit", requireAuthentication, requireAdminPermission("audit
 }));
 
 app.get("/api/admin/overview", requireAuthentication, asyncRoute(async (request, response) => {
-  if (!request.user.isAdmin || (!request.user.isSuperAdmin && !request.user.adminPermissions?.includes("reports:view"))) {
+  if ((!request.user.isAdmin && !request.user.isSuperAdmin) ||
+      (!request.user.isSuperAdmin && !request.user.adminPermissions?.includes("reports:view"))) {
     return response.status(403).json({ error: "Tài khoản quản trị chưa được cấp quyền xem thống kê hệ thống." });
   }
   const result = await pool.query(
     `SELECT
-       (SELECT COUNT(*) FROM users WHERE is_active = TRUE)::INT AS "accountCount",
+       (SELECT COUNT(*) FROM users)::INT AS "accountCount",
+       (SELECT COUNT(*) FROM users WHERE student_number IS NOT NULL)::INT AS "studentCount",
+       (SELECT COUNT(*) FROM users WHERE is_teacher = TRUE AND is_admin = FALSE)::INT AS "teacherCount",
        (SELECT COUNT(*) FROM classes)::INT AS "classCount",
-       (SELECT COUNT(*) FROM users
-        WHERE is_active = TRUE AND is_teacher = TRUE AND is_admin = FALSE)::INT AS "teacherCount",
+       (SELECT COUNT(*) FROM users WHERE is_active = TRUE)::INT AS "activeAccountCount",
+       (SELECT COUNT(*) FROM users WHERE is_active = FALSE)::INT AS "inactiveAccountCount",
+       (SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days')::INT AS "createdLast7Days",
+       (SELECT COUNT(*)::INT FROM audit_logs
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+          AND (action ILIKE '%fail%' OR action ILIKE '%suspicious%' OR action ILIKE '%error%')) AS "abnormalActivityCount",
        (SELECT COALESCE(SUM(points), 0)::INT FROM conduct_records
         WHERE kind = 'positive'
           AND record_date >= DATE_TRUNC('month', CURRENT_DATE)::DATE
@@ -1056,6 +1210,7 @@ app.get("/api/session", requireAuthentication, asyncRoute(async (request, respon
      FROM class_members
      JOIN classes ON classes.id = class_members.class_id
      WHERE class_members.user_id = $1 AND class_members.is_active = TRUE
+       AND classes.is_active = TRUE
      ORDER BY classes.name`,
     [request.user.id]
   );
@@ -1093,6 +1248,7 @@ app.get("/api/classes", requireAuthentication, asyncRoute(async (request, respon
      FROM class_members
      JOIN classes ON classes.id = class_members.class_id
      WHERE class_members.user_id = $1 AND class_members.is_active = TRUE
+       AND classes.is_active = TRUE
      ORDER BY classes.name`,
     [request.user.id]
   );
@@ -1126,6 +1282,14 @@ app.post("/api/classes", requireAuthentication, requireSameOrigin, asyncRoute(as
        SELECT $1, $2, id FROM roles WHERE name = 'ROLE_TEACHER'`,
       [classId, membership.rows[0].id]
     );
+    await audit(client, {
+      classId,
+      actorUserId: request.user.id,
+      action: "CREATE_CLASS",
+      targetType: "class",
+      targetId: classId,
+      details: { name, academicYear, ip: request.ip }
+    });
     await client.query("COMMIT");
     response.status(201).json({ class: classResult.rows[0] });
   } catch (error) {
@@ -1142,6 +1306,19 @@ app.get("/api/admin/classes", requireAuthentication, requireAdminAccount, asyncR
     `SELECT classes.id,
             classes.class_code,
             classes.name AS class_name,
+            classes.is_active,
+            ARRAY(
+              SELECT DISTINCT users.full_name
+              FROM class_members
+              JOIN users ON users.id = class_members.user_id
+              JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+              JOIN roles ON roles.id = class_member_roles.role_id
+              WHERE class_members.class_id = classes.id
+                AND class_members.is_active = TRUE
+                AND users.is_active = TRUE
+                AND roles.name = 'ROLE_TEACHER'
+              ORDER BY users.full_name
+            ) AS teachers,
             (
               SELECT COUNT(DISTINCT class_members.user_id)::INT
               FROM class_members
@@ -1170,13 +1347,44 @@ app.get("/api/admin/classes", requireAuthentication, requireAdminAccount, asyncR
   response.json({ classes: result.rows });
 }));
 
-app.get("/api/admin/classes/:classId/deletion-preview", requireAuthentication, requireAdminAccount,
+app.get("/api/admin/classes/:classId", requireAuthentication, requireAdminAccount, asyncRoute(async (request, response) => {
+  if (!UUID_PATTERN.test(request.params.classId)) {
+    return response.status(400).json({ error: "Mã lớp không hợp lệ." });
+  }
+  const result = await pool.query(
+    `SELECT classes.id, classes.class_code, classes.name AS class_name,
+            classes.academic_year, classes.is_active, classes.created_at AS "createdAt",
+            ARRAY(
+              SELECT jsonb_build_object('id', users.id, 'username', users.username, 'fullName', users.full_name)
+              FROM class_members
+              JOIN users ON users.id = class_members.user_id
+              JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+              JOIN roles ON roles.id = class_member_roles.role_id
+              WHERE class_members.class_id = classes.id
+                AND class_members.is_active = TRUE
+                AND users.is_active = TRUE
+                AND roles.name = 'ROLE_TEACHER'
+              GROUP BY users.id, users.username, users.full_name
+              ORDER BY users.full_name
+            ) AS teachers,
+            (SELECT COUNT(DISTINCT cm.user_id)::INT FROM class_members cm
+             JOIN class_member_roles cmr ON cmr.class_member_id = cm.id
+             JOIN roles r ON r.id = cmr.role_id
+             WHERE cm.class_id = classes.id AND cm.is_active AND r.name = 'ROLE_STUDENT') AS "studentCount"
+     FROM classes WHERE classes.id = $1`,
+    [request.params.classId]
+  );
+  if (!result.rowCount) return response.status(404).json({ error: "Không tìm thấy lớp." });
+  response.json({ class: result.rows[0] });
+}));
+
+app.get(["/api/admin/classes/:classId/preview", "/api/admin/classes/:classId/deletion-preview"], requireAuthentication, requireAdminAccount,
   asyncRoute(async (request, response) => {
     if (!UUID_PATTERN.test(request.params.classId)) {
       return response.status(400).json({ error: "Mã lớp không hợp lệ." });
     }
     const classResult = await pool.query(
-      `SELECT id, class_code, name AS class_name, academic_year
+      `SELECT id, class_code, name AS class_name, academic_year, is_active
        FROM classes WHERE id = $1`,
       [request.params.classId]
     );
@@ -1223,7 +1431,47 @@ app.get("/api/admin/classes/:classId/deletion-preview", requireAuthentication, r
     });
   }));
 
-app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrigin, requireAdminAccount,
+app.patch("/api/admin/classes/:classId/status", requireAuthentication, requireSameOrigin, requireAdminAccount,
+  asyncRoute(async (request, response) => {
+    if (!UUID_PATTERN.test(request.params.classId) || typeof request.body?.isActive !== "boolean") {
+      return response.status(400).json({ error: "Thông tin trạng thái lớp không hợp lệ." });
+    }
+    const expectedConfirmation = request.body.isActive ? "ENABLE CLASS" : "DISABLE CLASS";
+    if (request.body.confirmText !== expectedConfirmation) {
+      return response.status(400).json({ error: `Cần xác nhận bằng nội dung ${expectedConfirmation}.` });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const updated = await client.query(
+        `UPDATE classes SET is_active = $2
+         WHERE id = $1
+         RETURNING id, class_code, name AS class_name, is_active`,
+        [request.params.classId, request.body.isActive]
+      );
+      if (!updated.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(404).json({ error: "Không tìm thấy lớp." });
+      }
+      await audit(client, {
+        classId: updated.rows[0].id,
+        actorUserId: request.user.id,
+        action: request.body.isActive ? "ENABLE_CLASS" : "DISABLE_CLASS",
+        targetType: "class",
+        targetId: updated.rows[0].id,
+        details: { classCode: updated.rows[0].class_code, name: updated.rows[0].class_name, ip: request.ip }
+      });
+      await client.query("COMMIT");
+      response.json({ class: updated.rows[0] });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
+
+app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrigin, requireSuperAdmin,
   asyncRoute(async (request, response) => {
     if (!UUID_PATTERN.test(request.params.classId)) {
       return response.status(400).json({ error: "Mã lớp không hợp lệ." });
@@ -1341,7 +1589,7 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
       await audit(client, {
         classId: request.params.classId,
         actorUserId: request.user.id,
-        action: "admin.class_deleted",
+        action: "DELETE_CLASS",
         targetType: "class",
         targetId: request.params.classId,
         details: {
@@ -1349,7 +1597,8 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
           className: classInfo.class_name,
           deletedRelations,
           deletedStudents,
-          keptSharedUsers
+          keptSharedUsers,
+          ip: request.ip
         }
       });
       const deletedClassResult = await client.query(

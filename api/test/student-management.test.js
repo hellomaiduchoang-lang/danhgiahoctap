@@ -247,6 +247,32 @@ test("Excel import rejects malformed or unsupported files", async () => {
     poolQuery: async (sql) => authenticatedTeacherQuery(sql),
     clientQuery: async () => ({ rows: [], rowCount: 0 })
   });
+
+  test("Excel import rejects privileged account columns", async () => {
+    const database = installDatabaseMock({
+      poolQuery: async (sql) => {
+        const auth = authenticatedTeacherQuery(sql);
+        if (sql.includes("FROM auth_sessions")) return auth;
+        return { rows: [], rowCount: 0 };
+      },
+      clientQuery: async () => ({ rows: [], rowCount: 0 })
+    });
+    try {
+      await withServer(async (origin) => {
+        const workbook = XLSX.utils.book_new();
+        const sheet = XLSX.utils.aoa_to_sheet([
+          ["username", "full_name", "student_code", "class_code", "password", "is_admin"],
+          ["student.admin", "Student", "HS201", "C-01", "Some-password", "true"]
+        ]);
+        XLSX.utils.book_append_sheet(workbook, sheet, "Students");
+        const response = await postImport(origin, XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+        assert.equal(response.status, 400);
+        assert.equal(database.statements.some(({ sql }) => sql.includes("INSERT INTO users")), false);
+      });
+    } finally {
+      database.restore();
+    }
+  });
   try {
     await withServer(async (origin) => {
       const malformed = await postImport(origin, Buffer.from("not an Excel workbook"));

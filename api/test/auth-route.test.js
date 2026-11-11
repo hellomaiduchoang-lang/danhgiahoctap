@@ -139,6 +139,17 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /\/api\/classes\/\$\{encodeURIComponent\(activeClass\.id\)\}\/students/);
     assert.match(html, /body:\s*\{\s*fullName:\s*document\.getElementById\("new-student-name"\)\.value\s*\}/);
     assert.match(html, /timeoutMs:\s*120000/);
+    assert.match(html, /\/api\/admin\/users\/\$\{encodeURIComponent\(account\.id\)\}\/status/);
+    assert.match(html, /DISABLE ACCOUNT/);
+    assert.match(html, /ENABLE ACCOUNT/);
+    assert.match(html, /admin-account-confirm-username/);
+    assert.match(html, /data-account-action="\$\{account\.isActive \? "disable" : "enable"\}"/);
+    const createFormStart = html.indexOf('document.getElementById("student-account-form").addEventListener("submit"');
+    const bulkFormStart = html.indexOf('document.getElementById("bulk-student-form").addEventListener("submit"', createFormStart);
+    const createFormHandler = html.slice(createFormStart, bulkFormStart);
+    assert.ok(createFormHandler.indexOf("rememberGeneratedStudentAccounts([result.account])") <
+      createFormHandler.indexOf("await loadClassData()"));
+    assert.match(createFormHandler, /Đã tạo tài khoản, nhưng chưa thể làm mới danh sách/);
   }
 });
 
