@@ -1038,22 +1038,61 @@
               </div>
             </div>
             <div class="cards" id="admin-overview-panel">
-              <div class="stat-card"><div class="stat-top">Tổng số tài khoản</div><div class="stat-number" id="admin-account-count">—</div></div>
-              <div class="stat-card"><div class="stat-top">Số lớp học</div><div class="stat-number" id="admin-class-count">—</div></div>
-              <div class="stat-card"><div class="stat-top">Tài khoản giáo viên</div><div class="stat-number" id="admin-teacher-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tổng số học sinh</div><div class="stat-number" id="admin-student-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tổng số giáo viên</div><div class="stat-number" id="admin-teacher-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tổng số lớp</div><div class="stat-number" id="admin-class-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tài khoản đang hoạt động</div><div class="stat-number" id="admin-active-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tài khoản vô hiệu hóa</div><div class="stat-number" id="admin-inactive-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Tài khoản mới (7 ngày)</div><div class="stat-number" id="admin-created-week-count">—</div></div>
+              <div class="stat-card"><div class="stat-top">Hoạt động bất thường (7 ngày)</div><div class="stat-number" id="admin-abnormal-count">—</div></div>
+            </div>
+            <div class="panel" id="admin-class-management" style="margin-top:16px;padding:18px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div>
+                  <div class="panel-title">Quản lý lớp học</div>
+                  <p class="form-help">Vô hiệu hóa sẽ giữ nguyên thành viên, điểm và lịch sử. Chỉ Super Admin mới có thể xóa vĩnh viễn sau khi xem trước.</p>
+                </div>
+                <button class="button" id="admin-classes-refresh" type="button">Tải lại danh sách</button>
+              </div>
+              <div class="table-wrap" style="margin-top:12px;">
+                <table>
+                  <thead><tr><th>Mã lớp</th><th>Tên lớp</th><th>Giáo viên phụ trách</th><th>Học sinh</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+                  <tbody id="admin-class-rows"></tbody>
+                </table>
+              </div>
+              <p class="auth-error" id="admin-class-error" role="alert" hidden></p>
+              <div class="panel" id="admin-class-preview" style="padding:14px;margin-top:12px;" hidden>
+                <div class="panel-title" id="admin-class-preview-title">Xem trước dữ liệu lớp</div>
+                <div class="form-help" id="admin-class-preview-counts" style="margin-top:10px;"></div>
+                <form id="admin-class-delete-form" class="form" style="margin-top:14px;">
+                  <div class="field"><label for="admin-class-confirm-code">Nhập chính xác mã lớp để xác nhận</label><input id="admin-class-confirm-code" autocomplete="off" required /></div>
+                  <div class="field"><label for="admin-class-confirm-text">Nhập DELETE CLASS để xác nhận</label><input id="admin-class-confirm-text" autocomplete="off" required /></div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="button" id="admin-class-delete-submit" type="submit">Xóa lớp và dữ liệu liên quan</button>
+                    <button class="button" id="admin-class-preview-close" type="button">Đóng</button>
+                  </div>
+                </form>
+              </div>
             </div>
             <div class="panel" id="admin-account-management" style="margin-top:16px;padding:18px;" hidden>
               <div class="panel-title">Quản lý tài khoản</div>
               <form id="admin-account-filter-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;align-items:end;margin:14px 0;">
                 <div class="field"><label for="admin-account-search">Tìm tên hoặc tên đăng nhập</label><input id="admin-account-search" maxlength="120" /></div>
                 <div class="field"><label for="admin-account-type">Loại tài khoản</label><select id="admin-account-type"><option value="">Tất cả</option><option value="student">Học sinh</option><option value="teacher">Giáo viên</option><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select></div>
-                <div class="field"><label for="admin-account-status">Trạng thái</label><select id="admin-account-status"><option value="">Tất cả</option><option value="active">Đang hoạt động</option><option value="locked">Đã khóa</option></select></div>
+                <div class="field"><label for="admin-account-status">Trạng thái</label><select id="admin-account-status"><option value="">Tất cả</option><option value="active">Đang hoạt động</option><option value="inactive">Đã vô hiệu hóa</option></select></div>
+                <div class="field"><label for="admin-account-class">Lớp</label><select id="admin-account-class"><option value="">Tất cả lớp</option></select></div>
                 <div class="field"><label for="admin-account-from">Tạo từ ngày</label><input id="admin-account-from" type="date" /></div>
                 <div class="field"><label for="admin-account-to">Đến ngày</label><input id="admin-account-to" type="date" /></div>
+                <div class="field"><label for="admin-account-page-size">Mỗi trang</label><select id="admin-account-page-size"><option>25</option><option>50</option><option>100</option></select></div>
                 <button class="button primary" type="submit">Lọc tài khoản</button>
               </form>
               <div class="table-wrap"><table><thead><tr><th>Tài khoản</th><th>Loại</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead><tbody id="admin-account-rows"></tbody></table></div>
               <p class="form-help" id="admin-account-result" aria-live="polite"></p>
+              <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+                <button class="button" type="button" id="admin-account-prev">Trước</button>
+                <span class="form-help" id="admin-account-page-label"></span>
+                <button class="button" type="button" id="admin-account-next">Sau</button>
+              </div>
               <div id="admin-reset-result" class="panel" style="padding:14px;margin-top:12px;" hidden>
                 <div class="panel-title">Mật khẩu tạm — chỉ hiển thị lần này</div>
                 <p class="form-help">Chuyển mật khẩu tạm cho đúng chủ tài khoản qua kênh đã xác minh. Họ sẽ phải đổi mật khẩu khi đăng nhập.</p>
@@ -1330,6 +1369,30 @@
               <div class="student-grid" id="student-grid" style="padding: 16px"></div>
               <div class="panel" id="student-account-panel" style="margin: 16px; padding: 18px;" hidden>
                 <div class="panel-title">Tạo tài khoản học sinh</div>
+                <div style="border-bottom:1px solid var(--line); margin:12px 0 16px; padding-bottom:16px;">
+                  <div class="panel-title">Nhập học sinh từ Excel</div>
+                  <p class="form-help" id="student-import-class-code" style="margin:8px 0;">Mã lớp phải được quản trị viên cấu hình trước khi nhập.</p>
+                  <p class="form-help">Tệp .xlsx hoặc .xls tối đa 5 MB và 500 dòng. Cần có các cột: username, full_name, student_code, class_code, password. Mật khẩu sẽ được băm; báo cáo không hiển thị mật khẩu.</p>
+                  <form id="student-import-form" class="form" style="margin-top:12px;">
+                    <div class="field"><label for="student-import-file">Tệp Excel</label><input id="student-import-file" type="file" accept=".xlsx,.xls" required /></div>
+                    <p class="auth-error" id="student-import-error" role="alert" hidden></p>
+                    <button class="button primary" id="student-import-submit" type="submit">Nhập học sinh</button>
+                  </form>
+                  <div id="student-import-report" role="status" aria-live="polite" style="margin-top:12px;" hidden>
+                    <div class="form-help" id="student-import-summary"></div>
+                    <ul id="student-import-errors" class="form-help" style="margin:8px 0 0; padding-left:20px;"></ul>
+                  </div>
+                </div>
+                <div style="border-bottom:1px solid var(--line); margin-bottom:16px; padding-bottom:16px;">
+                  <div class="panel-title">Danh sách học sinh và trạng thái tài khoản</div>
+                  <p class="form-help" id="teacher-student-list-permission" style="margin:8px 0;"></p>
+                  <div class="table-wrap">
+                    <table>
+                      <thead><tr><th>Mã học sinh</th><th>Tên đăng nhập</th><th>Họ tên</th><th>Thao tác</th></tr></thead>
+                      <tbody id="teacher-student-table"></tbody>
+                    </table>
+                  </div>
+                </div>
                 <form id="student-account-form" class="form" style="margin-top: 12px;">
                   <div class="field"><label for="new-student-name">Họ và tên học sinh</label><input id="new-student-name" maxlength="120" placeholder="Ví dụ: Nguyễn Văn An" required /></div>
                   <p class="form-help">ClassTrack tự tạo mã đăng nhập và mật khẩu cho học sinh.</p>
@@ -1538,6 +1601,27 @@
       </main>
     </div>
 
+    <div class="modal-backdrop" id="admin-account-status-modal" role="dialog" aria-modal="true" aria-labelledby="admin-account-status-title">
+      <div class="modal">
+        <div class="modal-head">
+          <div>
+            <h2 id="admin-account-status-title">Vô hiệu hóa tài khoản</h2>
+            <p id="admin-account-status-summary"></p>
+          </div>
+          <button class="close-button" id="admin-account-status-close" type="button" aria-label="Đóng">×</button>
+        </div>
+        <form class="form" id="admin-account-status-form" style="padding:18px 20px;">
+          <div class="field"><label for="admin-account-confirm-username">Nhập lại username</label><input id="admin-account-confirm-username" autocomplete="off" required /></div>
+          <div class="field"><label for="admin-account-confirm-text">Nhập DISABLE ACCOUNT</label><input id="admin-account-confirm-text" autocomplete="off" required /></div>
+          <p class="auth-error" id="admin-account-status-error" role="alert" hidden></p>
+          <div class="form-foot">
+            <button class="button" type="button" id="admin-account-status-cancel">Hủy</button>
+            <button class="button primary" type="submit" id="admin-account-status-submit">Vô hiệu hóa tài khoản</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="modal-backdrop" id="role-request-modal" role="dialog" aria-modal="true" aria-labelledby="role-request-title">
       <div class="modal">
         <div class="modal-head">
@@ -1688,9 +1772,10 @@
     <script>
       const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
       const localApiOrigin = "http://127.0.0.1:3000";
+      const renderApiOrigin = "https://classtrack-nobf.onrender.com";
       const apiOrigin = window.location.protocol === "file:" || (isLocalHost && window.location.port !== "3000")
         ? localApiOrigin
-        : "";
+        : renderApiOrigin;
 
       let students = [];
       let incidents = [];
@@ -1701,6 +1786,11 @@
       let currentUser = null;
       let generatedTeacherAccounts = [];
       let adminAccountCache = [];
+      let adminAccountPage = 1;
+      let adminAccountPageSize = 25;
+      let pendingAccountStatus = null;
+      let adminClasses = [];
+      let adminClassPreview = null;
       let adminPermissionTargetId = null;
       let classMemberships = [];
       let activeClass = null;
@@ -1814,24 +1904,60 @@
       const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
       const formatDate = (value) => new Date(value + "T00:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 
+      function renderTeacherStudentList() {
+        const table = document.getElementById("teacher-student-table");
+        const canDeactivate = Boolean(
+          currentUser?.isTeacher &&
+          !currentUser.isAdmin &&
+          activeClass?.roles.includes("ROLE_TEACHER") &&
+          activeClass?.permissions.includes("students:delete")
+        );
+        document.getElementById("teacher-student-list-permission").textContent = canDeactivate
+          ? "Vô hiệu hóa sẽ khóa đăng nhập nhưng giữ nguyên tài khoản, lớp và toàn bộ dữ liệu học tập."
+          : "Bạn có thể xem danh sách học sinh; quyền vô hiệu hóa chưa được cấp cho lớp này.";
+        table.innerHTML = students.length
+          ? students.map((student) => `<tr>
+              <td>${escapeHtml(student.id)}</td>
+              <td>${escapeHtml(student.username)}</td>
+              <td>${escapeHtml(student.name)}</td>
+              <td>${canDeactivate
+                ? `<button class="button" type="button" data-deactivate-student="${escapeHtml(student.memberId)}">Vô hiệu hóa</button>`
+                : "—"}</td>
+            </tr>`).join("")
+          : `<tr><td colspan="4" class="form-help">Chưa có học sinh đang hoạt động trong lớp.</td></tr>`;
+      }
+
+      function renderStudentImportReport(report) {
+        const reportElement = document.getElementById("student-import-report");
+        const errors = Array.isArray(report?.errors) ? report.errors : [];
+        document.getElementById("student-import-summary").textContent =
+          `Đã tạo: ${Number(report?.created) || 0} · Bỏ qua: ${Number(report?.skipped) || 0} · Lỗi: ${Number(report?.failed) || 0}`;
+        document.getElementById("student-import-errors").innerHTML = errors.map((item) =>
+          `<li>Dòng ${escapeHtml(item.row)}${item.field ? ` (${escapeHtml(item.field)})` : ""}: ${escapeHtml(item.message)}</li>`
+        ).join("");
+        reportElement.hidden = false;
+      }
+
       async function apiRequest(path, options = {}) {
         const method = (options.method || "GET").toUpperCase();
+        const isFormData = options.body instanceof FormData;
+        const timeoutMs = options.timeoutMs || 15000;
         const canRetry = method === "GET" && options.retry !== false;
         const maxAttempts = canRetry ? 2 : 1;
         let response;
         let networkError;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), 15000);
+          const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
           try {
             if (window.location.protocol !== "file:" && navigator.onLine === false) {
               throw new Error("offline");
             }
             response = await fetch(`${apiOrigin}${path}`, {
               method,
-              credentials: apiOrigin ? "include" : "same-origin",
-              headers: options.body ? { "Content-Type": "application/json" } : undefined,
-              body: options.body ? JSON.stringify(options.body) : undefined,
+              credentials: "include",
+              headers: options.body && !isFormData ? { "Content-Type": "application/json" } : undefined,
+              body: options.body ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
               signal: options.signal || controller.signal
             });
             networkError = null;
@@ -1874,6 +2000,7 @@
             : result?.error || `Request failed (${response.status}) for ${method} ${path}.`;
           const error = new Error(message);
           error.status = response.status;
+          error.response = result;
           error.isAuthError = response.status === 401;
           throw error;
         }
@@ -1906,7 +2033,11 @@
         roleRequestLoadVersion++;
         if (!activeClass) return;
         const permissions = new Set(activeClass.permissions);
-        document.getElementById("student-account-panel").hidden = !activeClass.roles.includes("ROLE_TEACHER") || !permissions.has("students:list");
+        const isClassTeacher = Boolean(currentUser?.isTeacher && !currentUser.isAdmin && activeClass.roles.includes("ROLE_TEACHER"));
+        document.getElementById("student-account-panel").hidden = !isClassTeacher || !permissions.has("students:list");
+        document.getElementById("student-import-class-code").textContent = activeClass.classCode
+          ? `Mã lớp hiện tại: ${activeClass.classCode}. Tệp phải khai báo đúng mã lớp này.`
+          : "Lớp này chưa có mã class_code; hãy yêu cầu quản trị viên cấu hình trước khi nhập.";
         document.getElementById("student-count-label").textContent = permissions.has("students:list")
           ? "Học sinh trong lớp"
           : "Học sinh trong phạm vi";
@@ -1941,6 +2072,7 @@
         ]);
         if (loadVersion !== classLoadVersion || !activeClass) return;
         students = Array.isArray(studentData?.students) ? studentData.students : [];
+        renderTeacherStudentList();
         incidents = Array.isArray(incidentData?.incidents) ? incidentData.incidents : [];
         conductCategories = Array.isArray(categoryData?.categories) ? categoryData.categories : [];
         forumPosts = Array.isArray(forumData?.posts) ? forumData.posts : [];
@@ -2022,7 +2154,7 @@
           return;
         }
         document.getElementById("personal-page-open").hidden = false;
-        if (currentUser.isAdmin) {
+        if (currentUser.isAdmin || currentUser.isSuperAdmin) {
           classSwitcher.hidden = true;
           adminShellItems.forEach((element) => { element.hidden = true; });
           document.querySelectorAll(".page-section").forEach((section) => {
@@ -2038,6 +2170,7 @@
           document.getElementById("admin-audit-panel").hidden = !hasAdminPermission("audit:view");
           document.getElementById("teacher-account-panel").hidden = !hasAdminPermission("teachers:manage");
           document.getElementById("admin-create-panel").hidden = !hasAdminPermission("admins:manage");
+          try { await loadAdminClasses(); } catch (error) { showToast(`Không thể tải danh sách lớp: ${error.message}`); }
           if (hasAdminPermission("reports:view")) await loadAdminOverview();
           if (hasAdminPermission("accounts:manage")) await loadAdminAccounts();
           if (hasAdminPermission("audit:view")) await loadAdminAudit();
@@ -2075,34 +2208,114 @@
 
       async function loadAdminOverview() {
         const result = await apiRequest("/api/admin/overview");
-        document.getElementById("admin-account-count").textContent = result.overview.accountCount;
+        document.getElementById("admin-student-count").textContent = result.overview.studentCount;
         document.getElementById("admin-class-count").textContent = result.overview.classCount;
         document.getElementById("admin-teacher-count").textContent = result.overview.teacherCount;
+        document.getElementById("admin-active-count").textContent = result.overview.activeAccountCount;
+        document.getElementById("admin-inactive-count").textContent = result.overview.inactiveAccountCount;
+        document.getElementById("admin-created-week-count").textContent = result.overview.createdLast7Days;
+        document.getElementById("admin-abnormal-count").textContent = result.overview.abnormalActivityCount;
         document.getElementById("admin-positive-points").textContent = result.overview.positivePoints;
         document.getElementById("admin-negative-points").textContent = result.overview.negativePoints;
         document.getElementById("admin-pending-records").textContent = result.overview.pendingRecords;
       }
 
+      async function loadAdminClasses() {
+        const errorBox = document.getElementById("admin-class-error");
+        errorBox.hidden = true;
+        const result = await apiRequest("/api/admin/classes");
+        adminClasses = result.classes;
+        const classFilter = document.getElementById("admin-account-class");
+        const selectedClassId = classFilter.value;
+        classFilter.innerHTML = `<option value="">Tất cả lớp</option>` + adminClasses.map((classroom) =>
+          `<option value="${escapeHtml(classroom.id)}">${escapeHtml(classroom.class_code || classroom.class_name)}${classroom.is_active ? "" : " · Đã vô hiệu hóa"}</option>`
+        ).join("");
+        classFilter.value = adminClasses.some((classroom) => classroom.id === selectedClassId) ? selectedClassId : "";
+        document.getElementById("admin-class-rows").innerHTML = adminClasses.length
+          ? adminClasses.map((classroom) => `<tr>
+              <td>${escapeHtml(classroom.class_code || "Chưa có mã")}</td>
+              <td>${escapeHtml(classroom.class_name)}</td>
+              <td>${escapeHtml((classroom.teachers || []).join(", ") || "Chưa phân công")}</td>
+              <td>${Number(classroom.student_count) || 0}</td>
+              <td>${classroom.is_active ? "Đang hoạt động" : "Đã vô hiệu hóa"}</td>
+              <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="button" type="button" data-class-preview="${escapeHtml(classroom.id)}">Chi tiết / xem trước</button>
+                <button class="button" type="button" data-class-status="${escapeHtml(classroom.id)}" data-next-active="${!classroom.is_active}">${classroom.is_active ? "Vô hiệu hóa" : "Khôi phục"}</button>
+                ${currentUser.isSuperAdmin ? `<button class="button" type="button" data-class-delete="${escapeHtml(classroom.id)}" ${classroom.class_code ? "" : "disabled title=\"Cần cấu hình mã lớp trước khi xóa\""}>Xóa vĩnh viễn</button>` : ""}
+              </div></td>
+            </tr>`).join("")
+          : `<tr><td colspan="6">Chưa có lớp học.</td></tr>`;
+      }
+
+      async function loadAdminClassDeletionPreview(classId) {
+        const result = await apiRequest(`/api/admin/classes/${encodeURIComponent(classId)}/preview`);
+        adminClassPreview = result;
+        const classroom = result.class;
+        const counts = result.relatedCounts;
+        const countLabels = [
+          ["Học sinh", counts.students],
+          ["Giáo viên", counts.teachers],
+          ["Thành viên lớp", counts.memberships],
+          ["Vai trò thành viên", counts.member_roles],
+          ["Quyền riêng thành viên", counts.member_permissions],
+          ["Yêu cầu vai trò", counts.role_requests],
+          ["Nhóm", counts.groups],
+          ["Thành viên nhóm", counts.group_members],
+          ["Danh mục điểm", counts.conduct_categories],
+          ["Sự việc / ghi nhận", counts.conduct_records],
+          ["Ghi nhận tích cực", counts.positive_records],
+          ["Vi phạm", counts.violations],
+          ["Điểm cộng", counts.positive_points],
+          ["Điểm trừ", counts.negative_points],
+          ["Tệp minh chứng", counts.evidence_files],
+          ["Bài đăng diễn đàn", counts.forum_posts],
+          ["Kỳ điểm tuần", counts.weekly_periods],
+          ["Bản ghi điểm tuần", counts.weekly_scores],
+          ["Nhật ký được giữ lại", counts.retained_audit_logs]
+        ];
+        document.getElementById("admin-class-preview-title").textContent =
+          `Xem trước: ${classroom.class_name} · ${classroom.class_code || "chưa có mã"} · ${classroom.academic_year}`;
+        document.getElementById("admin-class-preview-counts").innerHTML =
+          `<ul style="columns:2;column-gap:28px;padding-left:20px;margin:0;">${countLabels.map(([label, count]) =>
+            `<li>${escapeHtml(label)}: <strong>${Number(count) || 0}</strong></li>`
+          ).join("")}</ul><p style="margin-top:10px;">Không có bảng comments riêng trong schema. Nhật ký quản trị sẽ được giữ lại; nếu mã lớp chưa được đặt thì không thể xác nhận xóa.</p>`;
+        document.getElementById("admin-class-confirm-code").value = "";
+        document.getElementById("admin-class-confirm-text").value = "";
+        const deleteForm = document.getElementById("admin-class-delete-form");
+        deleteForm.hidden = !currentUser.isSuperAdmin;
+        document.getElementById("admin-class-delete-submit").disabled = !classroom.class_code || !currentUser.isSuperAdmin;
+        document.getElementById("admin-class-preview").hidden = false;
+        document.getElementById("admin-class-preview").scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
       async function loadAdminAccounts() {
         const query = new URLSearchParams();
         const values = {
-          q: document.getElementById("admin-account-search").value.trim(),
-          type: document.getElementById("admin-account-type").value,
+          search: document.getElementById("admin-account-search").value.trim(),
+          role: document.getElementById("admin-account-type").value,
           status: document.getElementById("admin-account-status").value,
+          classId: document.getElementById("admin-account-class").value,
           from: document.getElementById("admin-account-from").value,
-          to: document.getElementById("admin-account-to").value
+          to: document.getElementById("admin-account-to").value,
+          page: adminAccountPage,
+          pageSize: adminAccountPageSize
         };
         Object.entries(values).forEach(([key, value]) => { if (value) query.set(key, value); });
-        const result = await apiRequest(`/api/admin/accounts${query.size ? `?${query}` : ""}`);
-        adminAccountCache = result.accounts;
+        const result = await apiRequest(`/api/admin/users?${query}`);
+        if (adminAccountPage > Math.max(result.totalPages, 1)) {
+          adminAccountPage = Math.max(result.totalPages, 1);
+          return loadAdminAccounts();
+        }
+        const accounts = result.users || result.accounts || [];
+        adminAccountCache = accounts;
         const rows = document.getElementById("admin-account-rows");
         const typeNames = { student: "Học sinh", teacher: "Giáo viên", admin: "Admin", super_admin: "Super Admin", user: "Tài khoản" };
-        rows.innerHTML = result.accounts.length ? result.accounts.map((account) => {
+        rows.innerHTML = accounts.length ? accounts.map((account) => {
           const self = account.id === currentUser.id;
           const protectedAccount = account.isSuperAdmin && !currentUser.isSuperAdmin;
           const controls = [];
           if (!self && !protectedAccount) {
-            controls.push(`<button class="button" type="button" data-account-action="${account.isActive ? "lock" : "unlock"}" data-account-id="${escapeHtml(account.id)}">${account.isActive ? "Khóa" : "Mở khóa"}</button>`);
+            controls.push(`<button class="button" type="button" data-account-action="${account.isActive ? "disable" : "enable"}" data-account-id="${escapeHtml(account.id)}">${account.isActive ? "Vô hiệu hóa" : "Khôi phục"}</button>`);
             controls.push(`<button class="button" type="button" data-account-action="reset" data-account-id="${escapeHtml(account.id)}">Đặt lại mật khẩu</button>`);
             controls.push(`<button class="button" type="button" data-account-action="revoke" data-account-id="${escapeHtml(account.id)}">Thu hồi phiên</button>`);
           }
@@ -2110,9 +2323,42 @@
             controls.push(`<button class="button" type="button" data-account-action="permissions" data-account-id="${escapeHtml(account.id)}">Phân quyền</button>`);
             if (!self) controls.push(`<button class="button" type="button" data-account-action="super" data-account-id="${escapeHtml(account.id)}" data-next-super="${!account.isSuperAdmin}">${account.isSuperAdmin ? "Thu hồi Super Admin" : "Cấp Super Admin"}</button>`);
           }
-          return `<tr><td><strong>${escapeHtml(account.fullName)}</strong><br><small>${escapeHtml(account.username)}${self ? " · Bạn" : ""}</small>${account.mustChangePassword ? "<br><small>Cần đổi mật khẩu</small>" : ""}</td><td>${typeNames[account.type] || "Tài khoản"}</td><td>${account.isActive ? "Đang hoạt động" : "Đã khóa"}</td><td>${escapeHtml(new Date(account.createdAt).toLocaleString("vi-VN"))}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap;">${controls.join("") || "—"}</div></td></tr>`;
+          return `<tr><td><strong>${escapeHtml(account.fullName)}</strong><br><small>${escapeHtml(account.username)}${self ? " · Bạn" : ""}</small>${account.mustChangePassword ? "<br><small>Cần đổi mật khẩu</small>" : ""}<br><small>${Number(account.classCount) || 0} lớp · ${Number(account.relatedRecordCount) || 0} bản ghi liên quan</small></td><td>${typeNames[account.type] || "Tài khoản"}</td><td>${account.isActive ? "Đang hoạt động" : "Đã vô hiệu hóa"}</td><td>${escapeHtml(new Date(account.createdAt).toLocaleString("vi-VN"))}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap;">${controls.join("") || "—"}</div></td></tr>`;
         }).join("") : `<tr><td colspan="5">Không tìm thấy tài khoản.</td></tr>`;
-        document.getElementById("admin-account-result").textContent = `Hiển thị ${result.accounts.length} tài khoản (tối đa 250 kết quả).`;
+        document.getElementById("admin-account-result").textContent = `Tổng ${result.total} tài khoản · ${accounts.length} mục trên trang này.`;
+        document.getElementById("admin-account-page-label").textContent = `Trang ${result.page} / ${Math.max(result.totalPages, 1)}`;
+        document.getElementById("admin-account-prev").disabled = result.page <= 1;
+        document.getElementById("admin-account-next").disabled = result.page >= result.totalPages;
+      }
+
+      function openAdminAccountStatusModal(account, isActive) {
+        pendingAccountStatus = { account, isActive };
+        const disable = !isActive;
+        const confirmation = disable ? "DISABLE ACCOUNT" : "ENABLE ACCOUNT";
+        document.getElementById("admin-account-status-title").textContent = disable ? "Vô hiệu hóa tài khoản" : "Khôi phục tài khoản";
+        document.getElementById("admin-account-status-summary").textContent =
+          `${account.username}: ${Number(account.classCount) || 0} lớp và ${Number(account.relatedRecordCount) || 0} bản ghi học tập liên quan. Dữ liệu sẽ được giữ nguyên.`;
+        document.getElementById("admin-account-confirm-username").parentElement.hidden = !disable;
+        document.getElementById("admin-account-confirm-username").disabled = !disable;
+        document.getElementById("admin-account-confirm-username").required = disable;
+        document.getElementById("admin-account-confirm-text").previousElementSibling.textContent = `Nhập ${confirmation}`;
+        document.getElementById("admin-account-confirm-username").value = "";
+        document.getElementById("admin-account-confirm-text").value = "";
+        document.getElementById("admin-account-confirm-text").dataset.expected = confirmation;
+        document.getElementById("admin-account-status-submit").textContent = disable ? "Vô hiệu hóa tài khoản" : "Khôi phục tài khoản";
+        document.getElementById("admin-account-status-error").hidden = true;
+        document.getElementById("admin-account-status-modal").classList.add("open");
+      }
+
+      function accountStatusErrorMessage(error) {
+        const messages = {
+          401: "Phiên đăng nhập đã hết hạn. Đăng nhập lại rồi thử tiếp.",
+          403: "Tài khoản hiện tại không có quyền thực hiện thao tác này.",
+          404: "Không tìm thấy tài khoản; hãy tải lại danh sách.",
+          409: "Không thể thực hiện do ràng buộc bảo vệ tài khoản, ví dụ Super Admin cuối cùng.",
+          500: "Máy chủ gặp lỗi khi cập nhật trạng thái. Dữ liệu chưa được xác nhận là đã thay đổi."
+        };
+        return messages[error.status] || error.message;
       }
 
       async function loadAdminAudit() {
@@ -3105,21 +3351,95 @@
       document.getElementById("status-filter").addEventListener("change", renderIncidents);
       document.getElementById("student-search").addEventListener("input", renderStudents);
 
-      document.getElementById("student-account-form").addEventListener("submit", async (event) => {
+      document.getElementById("student-import-form").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const errorBox = document.getElementById("student-account-error");
+        const errorBox = document.getElementById("student-import-error");
+        const submit = document.getElementById("student-import-submit");
+        const fileInput = document.getElementById("student-import-file");
+        const file = fileInput.files[0];
         errorBox.hidden = true;
+        document.getElementById("student-import-report").hidden = true;
+        if (!file) {
+          errorBox.textContent = "Hãy chọn tệp Excel cần nhập.";
+          errorBox.hidden = false;
+          return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          errorBox.textContent = "Tệp Excel không được vượt quá 5 MB.";
+          errorBox.hidden = false;
+          return;
+        }
+        if (!/\.(xlsx|xls)$/i.test(file.name)) {
+          errorBox.textContent = "Chỉ chấp nhận tệp .xlsx hoặc .xls.";
+          errorBox.hidden = false;
+          return;
+        }
+        const formData = new FormData();
+        formData.append("file", file);
+        submit.disabled = true;
         try {
-          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`, {
+          const report = await apiRequest("/api/teacher/students/import", {
             method: "POST",
-            body: { fullName: document.getElementById("new-student-name").value }
+            body: formData,
+            timeoutMs: 300000
           });
-          rememberGeneratedStudentAccounts([result.account]);
+          renderStudentImportReport(report);
           event.target.reset();
           await loadClassData();
         } catch (error) {
+          if (error.response?.report) renderStudentImportReport(error.response.report);
           errorBox.textContent = error.message;
           errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      document.getElementById("teacher-student-table").addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-deactivate-student]");
+        if (!button) return;
+        const student = students.find((item) => item.memberId === button.dataset.deactivateStudent);
+        if (!student || !window.confirm(`Vô hiệu hóa tài khoản ${student.name}? Học sinh sẽ không thể đăng nhập; dữ liệu học tập được giữ nguyên.`)) return;
+        button.disabled = true;
+        try {
+          await apiRequest(`/api/teacher/students/${encodeURIComponent(student.memberId)}`, { method: "DELETE" });
+          await loadClassData();
+          showToast(`Đã vô hiệu hóa tài khoản của ${student.name}.`);
+        } catch (error) {
+          button.disabled = false;
+          showToast(error.message);
+        }
+      });
+
+      document.getElementById("student-account-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const errorBox = document.getElementById("student-account-error");
+        const submit = event.currentTarget.querySelector('button[type="submit"]');
+        errorBox.hidden = true;
+        submit.disabled = true;
+        try {
+          let result;
+          try {
+            result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`, {
+              method: "POST",
+              body: { fullName: document.getElementById("new-student-name").value },
+              timeoutMs: 120000
+            });
+          } catch (error) {
+            errorBox.textContent = error.message;
+            errorBox.hidden = false;
+            return;
+          }
+          rememberGeneratedStudentAccounts([result.account]);
+          event.target.reset();
+          showToast("Đã tạo tài khoản học sinh. Hãy tải thông tin đăng nhập để lưu mật khẩu.");
+          try {
+            await loadClassData();
+          } catch (error) {
+            showToast(`Đã tạo tài khoản, nhưng chưa thể làm mới danh sách: ${error.message}`);
+          }
+        } finally {
+          submit.disabled = false;
         }
       });
 
@@ -3153,7 +3473,87 @@
 
       document.getElementById("admin-account-filter-form").addEventListener("submit", async (event) => {
         event.preventDefault();
+        adminAccountPage = 1;
         try { await loadAdminAccounts(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-account-page-size").addEventListener("change", async (event) => {
+        adminAccountPage = 1;
+        adminAccountPageSize = Number(event.target.value);
+        try { await loadAdminAccounts(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-account-prev").addEventListener("click", async () => {
+        if (adminAccountPage <= 1) return;
+        adminAccountPage--;
+        try { await loadAdminAccounts(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-account-next").addEventListener("click", async () => {
+        adminAccountPage++;
+        try { await loadAdminAccounts(); } catch (error) { adminAccountPage--; showToast(error.message); }
+      });
+      document.getElementById("admin-classes-refresh").addEventListener("click", async () => {
+        try { await loadAdminClasses(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-class-rows").addEventListener("click", async (event) => {
+        const previewButton = event.target.closest("[data-class-preview]");
+        const deleteButton = event.target.closest("[data-class-delete]");
+        const statusButton = event.target.closest("[data-class-status]");
+        const button = previewButton || deleteButton || statusButton;
+        if (!button) return;
+        try {
+          if (statusButton) {
+            const isActive = statusButton.dataset.nextActive === "true";
+            const confirmation = isActive ? "ENABLE CLASS" : "DISABLE CLASS";
+            const classroom = adminClasses.find((item) => item.id === statusButton.dataset.classStatus);
+            if (!window.confirm(`${isActive ? "Khôi phục" : "Vô hiệu hóa"} lớp ${classroom?.class_name || ""}? Dữ liệu lớp sẽ được giữ nguyên.`)) return;
+            if (window.prompt(`Nhập ${confirmation} để xác nhận.`) !== confirmation) return;
+            await apiRequest(`/api/admin/classes/${encodeURIComponent(statusButton.dataset.classStatus)}/status`, {
+              method: "PATCH",
+              body: { isActive, confirmText: confirmation }
+            });
+            await loadAdminClasses();
+            if (hasAdminPermission("reports:view")) await loadAdminOverview();
+            if (hasAdminPermission("audit:view")) await loadAdminAudit();
+            showToast(isActive ? "Đã khôi phục lớp." : "Đã vô hiệu hóa lớp; dữ liệu được giữ nguyên.");
+            return;
+          }
+          await loadAdminClassDeletionPreview(button.dataset.classPreview || button.dataset.classDelete);
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
+      document.getElementById("admin-class-preview-close").addEventListener("click", () => {
+        document.getElementById("admin-class-preview").hidden = true;
+        adminClassPreview = null;
+      });
+      document.getElementById("admin-class-delete-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!adminClassPreview) return;
+        const classCode = document.getElementById("admin-class-confirm-code").value;
+        const confirmText = document.getElementById("admin-class-confirm-text").value;
+        if (classCode !== adminClassPreview.class.class_code || confirmText !== "DELETE CLASS") {
+          showToast("Mã lớp hoặc nội dung xác nhận chưa khớp.");
+          return;
+        }
+        if (!currentUser.isSuperAdmin) return;
+        if (!window.confirm(`Xóa vĩnh viễn lớp ${adminClassPreview.class.class_name} cùng dữ liệu liên quan? Tài khoản dùng chung lớp khác sẽ được giữ lại.`)) return;
+        const submit = document.getElementById("admin-class-delete-submit");
+        submit.disabled = true;
+        try {
+          const result = await apiRequest(`/api/admin/classes/${encodeURIComponent(adminClassPreview.class.id)}`, {
+            method: "DELETE",
+            body: { confirmClassCode: classCode, confirmText }
+          });
+          document.getElementById("admin-class-preview").hidden = true;
+          adminClassPreview = null;
+          event.target.reset();
+          await loadAdminClasses();
+          if (hasAdminPermission("reports:view")) await loadAdminOverview();
+          showToast(`Đã xóa lớp ${result.deletedClass.class_name}; giữ lại ${result.keptSharedUsers} tài khoản còn thuộc lớp khác.`);
+        } catch (error) {
+          showToast(error.message);
+        } finally {
+          submit.disabled = false;
+        }
       });
       document.getElementById("admin-account-rows").addEventListener("click", async (event) => {
         const button = event.target.closest("[data-account-action]");
@@ -3161,6 +3561,10 @@
         const account = adminAccountCache.find((item) => item.id === button.dataset.accountId);
         if (!account) return;
         const action = button.dataset.accountAction;
+        if (action === "disable" || action === "enable") {
+          openAdminAccountStatusModal(account, action === "enable");
+          return;
+        }
         try {
           if (action === "permissions") {
             adminPermissionTargetId = account.id;
@@ -3190,16 +3594,55 @@
             if (!window.confirm(`Thu hồi tất cả phiên đăng nhập của ${account.fullName}?`)) return;
             const result = await apiRequest(`/api/admin/accounts/${encodeURIComponent(account.id)}/revoke-sessions`, { method: "POST", body: {} });
             showToast(`Đã thu hồi ${result.revokedCount} phiên.`);
-          } else {
-            const isActive = action === "unlock";
-            if (!window.confirm(`${isActive ? "Mở khóa" : "Khóa"} tài khoản ${account.username}?`)) return;
-            await apiRequest(`/api/admin/accounts/${encodeURIComponent(account.id)}/status`, { method: "PATCH", body: { isActive } });
-            showToast(isActive ? "Đã mở khóa tài khoản." : "Đã khóa tài khoản và thu hồi các phiên.");
           }
           await loadAdminAccounts();
           if (hasAdminPermission("audit:view")) await loadAdminAudit();
           if (action === "super") await loadAdminOverview();
         } catch (error) { showToast(error.message); }
+      });
+      const closeAccountStatusModal = () => {
+        document.getElementById("admin-account-status-modal").classList.remove("open");
+        document.getElementById("admin-account-status-form").reset();
+        pendingAccountStatus = null;
+      };
+      document.getElementById("admin-account-status-close").addEventListener("click", closeAccountStatusModal);
+      document.getElementById("admin-account-status-cancel").addEventListener("click", closeAccountStatusModal);
+      document.getElementById("admin-account-status-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!pendingAccountStatus) return;
+        const { account, isActive } = pendingAccountStatus;
+        const confirmUsername = document.getElementById("admin-account-confirm-username").value;
+        const confirmText = document.getElementById("admin-account-confirm-text").value;
+        const errorBox = document.getElementById("admin-account-status-error");
+        if ((!isActive && confirmUsername !== account.username) ||
+            confirmText !== document.getElementById("admin-account-confirm-text").dataset.expected) {
+          errorBox.textContent = "Username hoặc nội dung xác nhận không khớp.";
+          errorBox.hidden = false;
+          return;
+        }
+        const submit = document.getElementById("admin-account-status-submit");
+        submit.disabled = true;
+        errorBox.hidden = true;
+        try {
+          await apiRequest(`/api/admin/users/${encodeURIComponent(account.id)}/status`, {
+            method: "PATCH",
+            body: {
+              isActive,
+              ...(isActive ? {} : { confirmUsername }),
+              confirmText
+            }
+          });
+          closeAccountStatusModal();
+          await loadAdminAccounts();
+          if (hasAdminPermission("reports:view")) await loadAdminOverview();
+          if (hasAdminPermission("audit:view")) await loadAdminAudit();
+          showToast(isActive ? "Đã khôi phục tài khoản." : "Đã vô hiệu hóa tài khoản và thu hồi các phiên.");
+        } catch (error) {
+          errorBox.textContent = accountStatusErrorMessage(error);
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
       });
       document.getElementById("admin-permissions-form").addEventListener("submit", async (event) => {
         event.preventDefault();

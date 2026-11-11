@@ -1046,6 +1046,19 @@
               <div class="stat-card"><div class="stat-top">Tài khoản mới (7 ngày)</div><div class="stat-number" id="admin-created-week-count">—</div></div>
               <div class="stat-card"><div class="stat-top">Hoạt động bất thường (7 ngày)</div><div class="stat-number" id="admin-abnormal-count">—</div></div>
             </div>
+            <div class="panel" id="admin-account-maintenance" style="margin-top:16px;padding:18px;" hidden>
+              <div class="panel-title">Dọn dẹp tài khoản test</div>
+              <p class="form-help">Thao tác này sẽ vô hiệu hóa tất cả tài khoản không phải Admin hoặc Super Admin và thu hồi phiên đăng nhập của họ. Tài khoản Admin/Super Admin được giữ nguyên. Dữ liệu học sinh, giáo viên, lớp, điểm, vi phạm và nhận xét không bị xóa.</p>
+              <form id="admin-account-maintenance-form" class="form" style="margin-top:14px;">
+                <div class="field">
+                  <label for="admin-account-maintenance-confirm">Nhập chính xác DISABLE ALL NON-ADMINS để xác nhận</label>
+                  <input id="admin-account-maintenance-confirm" autocomplete="off" required />
+                </div>
+                <p class="auth-error" id="admin-account-maintenance-error" role="alert" hidden></p>
+                <p class="form-help" id="admin-account-maintenance-result" role="status" hidden></p>
+                <button class="button" id="admin-account-maintenance-submit" type="submit">Vô hiệu hóa tài khoản ngoài Admin</button>
+              </form>
+            </div>
             <div class="panel" id="admin-class-management" style="margin-top:16px;padding:18px;">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
                 <div>
@@ -1611,7 +1624,6 @@
           <button class="close-button" id="admin-account-status-close" type="button" aria-label="Đóng">×</button>
         </div>
         <form class="form" id="admin-account-status-form" style="padding:18px 20px;">
-          <div class="field"><label for="admin-account-confirm-username">Nhập lại username</label><input id="admin-account-confirm-username" autocomplete="off" required /></div>
           <div class="field"><label for="admin-account-confirm-text">Nhập DISABLE ACCOUNT</label><input id="admin-account-confirm-text" autocomplete="off" required /></div>
           <p class="auth-error" id="admin-account-status-error" role="alert" hidden></p>
           <div class="form-foot">
@@ -2166,6 +2178,7 @@
           document.getElementById("breadcrumb-title").textContent = "Quản trị tài khoản";
           document.getElementById("sidebar-user-role").textContent = currentUser.isSuperAdmin ? "Super Admin" : "Admin";
           document.getElementById("admin-overview-panel").hidden = !hasAdminPermission("reports:view");
+          document.getElementById("admin-account-maintenance").hidden = !currentUser.isSuperAdmin;
           document.getElementById("admin-account-management").hidden = !hasAdminPermission("accounts:manage");
           document.getElementById("admin-audit-panel").hidden = !hasAdminPermission("audit:view");
           document.getElementById("teacher-account-panel").hidden = !hasAdminPermission("teachers:manage");
@@ -2338,11 +2351,7 @@
         document.getElementById("admin-account-status-title").textContent = disable ? "Vô hiệu hóa tài khoản" : "Khôi phục tài khoản";
         document.getElementById("admin-account-status-summary").textContent =
           `${account.username}: ${Number(account.classCount) || 0} lớp và ${Number(account.relatedRecordCount) || 0} bản ghi học tập liên quan. Dữ liệu sẽ được giữ nguyên.`;
-        document.getElementById("admin-account-confirm-username").parentElement.hidden = !disable;
-        document.getElementById("admin-account-confirm-username").disabled = !disable;
-        document.getElementById("admin-account-confirm-username").required = disable;
         document.getElementById("admin-account-confirm-text").previousElementSibling.textContent = `Nhập ${confirmation}`;
-        document.getElementById("admin-account-confirm-username").value = "";
         document.getElementById("admin-account-confirm-text").value = "";
         document.getElementById("admin-account-confirm-text").dataset.expected = confirmation;
         document.getElementById("admin-account-status-submit").textContent = disable ? "Vô hiệu hóa tài khoản" : "Khôi phục tài khoản";
@@ -3490,6 +3499,36 @@
         adminAccountPage++;
         try { await loadAdminAccounts(); } catch (error) { adminAccountPage--; showToast(error.message); }
       });
+      document.getElementById("admin-account-maintenance-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const confirmation = document.getElementById("admin-account-maintenance-confirm").value;
+        const errorBox = document.getElementById("admin-account-maintenance-error");
+        const resultBox = document.getElementById("admin-account-maintenance-result");
+        const submit = document.getElementById("admin-account-maintenance-submit");
+        errorBox.hidden = true;
+        resultBox.hidden = true;
+        if (confirmation !== "DISABLE ALL NON-ADMINS") {
+          errorBox.textContent = "Nội dung xác nhận không khớp.";
+          errorBox.hidden = false;
+          return;
+        }
+        if (!currentUser.isSuperAdmin) return;
+        submit.disabled = true;
+        try {
+          const result = await apiRequest("/api/admin/maintenance/disable-non-admins", {
+            method: "POST",
+            body: { confirmText: confirmation }
+          });
+          event.currentTarget.reset();
+          resultBox.textContent = `Đã vô hiệu hóa ${result.disabledCount} tài khoản không phải Admin và thu hồi phiên đăng nhập.`;
+          resultBox.hidden = false;
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
+      });
       document.getElementById("admin-classes-refresh").addEventListener("click", async () => {
         try { await loadAdminClasses(); } catch (error) { showToast(error.message); }
       });
@@ -3611,12 +3650,10 @@
         event.preventDefault();
         if (!pendingAccountStatus) return;
         const { account, isActive } = pendingAccountStatus;
-        const confirmUsername = document.getElementById("admin-account-confirm-username").value;
         const confirmText = document.getElementById("admin-account-confirm-text").value;
         const errorBox = document.getElementById("admin-account-status-error");
-        if ((!isActive && confirmUsername !== account.username) ||
-            confirmText !== document.getElementById("admin-account-confirm-text").dataset.expected) {
-          errorBox.textContent = "Username hoặc nội dung xác nhận không khớp.";
+        if (confirmText !== document.getElementById("admin-account-confirm-text").dataset.expected) {
+          errorBox.textContent = "Nội dung xác nhận không khớp.";
           errorBox.hidden = false;
           return;
         }
@@ -3628,7 +3665,6 @@
             method: "PATCH",
             body: {
               isActive,
-              ...(isActive ? {} : { confirmUsername }),
               confirmText
             }
           });
@@ -3636,7 +3672,7 @@
           await loadAdminAccounts();
           if (hasAdminPermission("reports:view")) await loadAdminOverview();
           if (hasAdminPermission("audit:view")) await loadAdminAudit();
-          showToast(isActive ? "Đã khôi phục tài khoản." : "Đã vô hiệu hóa tài khoản và thu hồi các phiên.");
+          showToast(isActive ? "Đã khôi phục tài khoản." : "Đã vô hiệu hóa tài khoản");
         } catch (error) {
           errorBox.textContent = accountStatusErrorMessage(error);
           errorBox.hidden = false;

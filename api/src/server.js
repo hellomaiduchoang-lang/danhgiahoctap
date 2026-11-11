@@ -926,8 +926,7 @@ const updateAdminUserStatus = asyncRoute(async (request, response) => {
   const isActive = request.body?.isActive;
   const expectedConfirmation = isActive === false ? "DISABLE ACCOUNT" : "ENABLE ACCOUNT";
   if (!UUID_PATTERN.test(userId) || typeof isActive !== "boolean" ||
-      request.body?.confirmText !== expectedConfirmation ||
-      (isActive === false && typeof request.body?.confirmUsername !== "string")) {
+      request.body?.confirmText !== expectedConfirmation) {
     return response.status(400).json({ error: "Mã tài khoản hoặc nội dung xác nhận trạng thái không hợp lệ." });
   }
 
@@ -946,10 +945,6 @@ const updateAdminUserStatus = asyncRoute(async (request, response) => {
     }
 
     const account = target.rows[0];
-    if (!isActive && request.body.confirmUsername !== account.username) {
-      await client.query("ROLLBACK");
-      return response.status(400).json({ error: "Tên đăng nhập xác nhận không khớp." });
-    }
     if (account.is_super_admin && !request.user.isSuperAdmin) {
       await client.query("ROLLBACK");
       return response.status(403).json({ error: "Chỉ Super Admin mới được thay đổi trạng thái tài khoản Super Admin." });
@@ -1003,6 +998,57 @@ app.patch(
   requireSameOrigin,
   requireAdminPermission("accounts:manage"),
   updateAdminUserStatus
+);
+
+app.post(
+  "/api/admin/maintenance/disable-non-admins",
+  requireAuthentication,
+  requireSameOrigin,
+  requireSuperAdmin,
+  asyncRoute(async (request, response) => {
+    if (request.body?.confirmText !== "DISABLE ALL NON-ADMINS") {
+      return response.status(400).json({ error: "Cần nhập chính xác DISABLE ALL NON-ADMINS để xác nhận." });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const accounts = await client.query(
+        "SELECT id FROM users WHERE is_admin = FALSE AND is_super_admin = FALSE FOR UPDATE"
+      );
+      const accountIds = accounts.rows.map((account) => account.id);
+      let disabledCount = 0;
+      let revokedSessionCount = 0;
+
+      if (accountIds.length) {
+        const disabled = await client.query(
+          "UPDATE users SET is_active = FALSE WHERE id = ANY($1::uuid[]) AND is_active = TRUE RETURNING id",
+          [accountIds]
+        );
+        disabledCount = disabled.rowCount;
+        const sessions = await client.query(
+          "DELETE FROM auth_sessions WHERE user_id = ANY($1::uuid[])",
+          [accountIds]
+        );
+        revokedSessionCount = sessions.rowCount;
+      }
+
+      await audit(client, {
+        actorUserId: request.user.id,
+        action: "admin.maintenance_disabled_non_admins",
+        targetType: "user",
+        targetId: "all_non_admins",
+        details: { disabledCount, revokedSessionCount, ip: request.ip }
+      });
+      await client.query("COMMIT");
+      response.json({ disabledCount });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
 );
 
 app.post("/api/admin/accounts/:accountId/password-reset", requireAuthentication, requireSameOrigin,

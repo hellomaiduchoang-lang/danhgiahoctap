@@ -95,7 +95,6 @@ function targetAccount({
 
 async function patchStatus(origin, userId = targetId, body = {
   isActive: false,
-  confirmUsername: "student.test",
   confirmText: "DISABLE ACCOUNT"
 }, cookie = adminCookie) {
   return fetch(`${origin}/api/admin/users/${userId}/status`, {
@@ -157,23 +156,30 @@ test("invalid user ID or confirmation returns 400", async () => {
   }
 });
 
-test("disabling an account requires an exact username confirmation", async () => {
+test("disabling an account requires only the exact DISABLE ACCOUNT confirmation", async () => {
   const database = installDatabaseMock({
     user: authenticatedUser(),
-    clientQuery: async (sql) => sql.includes("FROM users WHERE id = $1 FOR UPDATE")
-      ? { rows: [targetAccount()], rowCount: 1 }
-      : { rows: [], rowCount: 1 }
+    clientQuery: async (sql, params = []) => {
+      if (sql.includes("FROM users WHERE id = $1 FOR UPDATE")) {
+        assert.deepEqual(params, [targetId]);
+        return { rows: [targetAccount()], rowCount: 1 };
+      }
+      if (sql.startsWith("UPDATE users SET is_active")) {
+        assert.deepEqual(params, [targetId, false]);
+        return { rows: [{ id: targetId, username: "student.test", is_active: false }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
   });
   try {
     await withServer(async (origin) => {
       const response = await patchStatus(origin, targetId, {
         isActive: false,
-        confirmUsername: "Student.Test",
         confirmText: "DISABLE ACCOUNT"
       });
-      assert.equal(response.status, 400);
-      assert.equal(database.statements.some(({ sql }) => sql.startsWith("UPDATE users")), false);
-      assert.equal(database.statements.some(({ sql }) => sql === "ROLLBACK"), true);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { userId: targetId, isActive: false, revokedSessions: 1 });
+      assert.equal(database.statements.some(({ sql }) => sql === "COMMIT"), true);
     });
   } finally {
     database.restore();

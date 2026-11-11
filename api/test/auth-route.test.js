@@ -142,8 +142,17 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /\/api\/admin\/users\/\$\{encodeURIComponent\(account\.id\)\}\/status/);
     assert.match(html, /DISABLE ACCOUNT/);
     assert.match(html, /ENABLE ACCOUNT/);
-    assert.match(html, /admin-account-confirm-username/);
+    assert.doesNotMatch(html, /admin-account-confirm-username/);
     assert.match(html, /data-account-action="\$\{account\.isActive \? "disable" : "enable"\}"/);
+    const statusHandlerStart = html.indexOf('document.getElementById("admin-account-status-form").addEventListener("submit"');
+    const statusHandlerEnd = html.indexOf('document.getElementById("admin-permissions-form").addEventListener("submit"', statusHandlerStart);
+    const statusHandler = html.slice(statusHandlerStart, statusHandlerEnd);
+    assert.match(statusHandler, /\/api\/admin\/users\/\$\{encodeURIComponent\(account\.id\)\}\/status/);
+    assert.match(statusHandler, /method:\s*"PATCH",\s*body:\s*\{\s*isActive,\s*confirmText\s*\}/);
+    assert.equal((statusHandler.match(/await loadAdminAccounts\(\)/g) || []).length, 1);
+    assert.equal((statusHandler.match(/await loadAdminAudit\(\)/g) || []).length, 1);
+    assert.match(statusHandler, /showToast\(isActive \? "Đã khôi phục tài khoản\." : "Đã vô hiệu hóa tài khoản"\)/);
+    assert.doesNotMatch(statusHandler, /revoke-sessions/);
     const createFormStart = html.indexOf('document.getElementById("student-account-form").addEventListener("submit"');
     const bulkFormStart = html.indexOf('document.getElementById("bulk-student-form").addEventListener("submit"', createFormStart);
     const createFormHandler = html.slice(createFormStart, bulkFormStart);
@@ -151,6 +160,16 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
       createFormHandler.indexOf("await loadClassData()"));
     assert.match(createFormHandler, /Đã tạo tài khoản, nhưng chưa thể làm mới danh sách/);
   }
+});
+
+test("account cleanup UI is restricted to Super Admin and sends the exact confirmation", async () => {
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /id="admin-account-maintenance"[^>]*hidden/);
+  assert.match(html, /admin-account-maintenance"\)\.hidden = !currentUser\.isSuperAdmin/);
+  assert.match(html, /DISABLE ALL NON-ADMINS/);
+  assert.match(html, /\/api\/admin\/maintenance\/disable-non-admins/);
+  assert.match(html, /method:\s*"POST",\s*body:\s*\{\s*confirmText:\s*confirmation\s*\}/);
+  assert.match(html, /Dữ liệu học sinh, giáo viên, lớp, điểm, vi phạm và nhận xét không bị xóa/);
 });
 
 test("CORS allows credentialed requests only from the configured frontend origin", async () => {
