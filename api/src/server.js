@@ -287,7 +287,7 @@ app.post(
   requireTeacherAccount,
   parseStudentImportFile,
   asyncRoute(async (request, response) => {
-    const report = { created: 0, skipped: 0, failed: 0, errors: [] };
+    const report = { created: 0, skipped: 0, failed: 0, errors: [], credentials: [] };
     const file = request.file;
     if (!file) return response.status(400).json({ error: "Hãy chọn tệp Excel trong trường file." });
     if (![".xlsx", ".xls"].includes(path.extname(file.originalname).toLowerCase())) {
@@ -565,6 +565,12 @@ app.post(
           }
         });
         report.created++;
+        report.credentials.push({
+          username: student.username,
+          full_name: student.fullName,
+          student_code: student.studentCode,
+          temporary_password: student.password
+        });
       }
       await client.query("COMMIT");
     } catch (error) {
@@ -618,7 +624,14 @@ app.post("/api/classes/:classId/students", requireAuthentication, requireSameOri
       action: "student.account_created", targetType: "user", targetId: user.rows[0].id,
       details: { username } });
     await client.query("COMMIT");
-    response.status(201).json({ account: { id: studentNumber, studentNumber, username, fullName, password } });
+    response.status(201).json({
+      credentials: [{
+        username,
+        full_name: fullName,
+        student_code: studentNumber,
+        temporary_password: password
+      }]
+    });
   } catch (error) {
     await client.query("ROLLBACK");
     if (error.code === "23505") return response.status(409).json({ error: "Tên đăng nhập hoặc mã học sinh đã được sử dụng." });
@@ -685,7 +698,14 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
       });
     }
     await client.query("COMMIT");
-    response.status(201).json({ accounts: studentsToCreate.map(({ studentNumber, username, fullName, password }) => ({ studentNumber, username, fullName, password })) });
+    response.status(201).json({
+      credentials: studentsToCreate.map(({ studentNumber, username, fullName, password }) => ({
+        username,
+        full_name: fullName,
+        student_code: studentNumber,
+        temporary_password: password
+      }))
+    });
   } catch (error) {
     await client.query("ROLLBACK");
     if (error.code === "23505") return response.status(409).json({ error: "Có mã học sinh hoặc tên đăng nhập đã tồn tại. Chưa tài khoản nào được tạo; hãy sửa danh sách rồi thử lại." });

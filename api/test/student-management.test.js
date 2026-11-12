@@ -105,7 +105,7 @@ function classLookup(roles = ["ROLE_TEACHER"], permissions = ["students:list"]) 
   };
 }
 
-test("Excel import creates a student with a bcrypt hash and no password in the report", async () => {
+test("Excel import returns one-time credentials and stores only a bcrypt hash", async () => {
   const password = "Strong-password-123";
   const database = installDatabaseMock({
     poolQuery: async (sql, params = []) => {
@@ -135,10 +135,22 @@ test("Excel import creates a student with a bcrypt hash and no password in the r
       ]));
       assert.equal(response.status, 200);
       const report = await response.json();
-      assert.deepEqual(report, { created: 1, skipped: 0, failed: 0, errors: [] });
-      assert.equal(JSON.stringify(report).includes(password), false);
+      assert.deepEqual(report, {
+        created: 1,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+        credentials: [{
+          username: "student.one",
+          full_name: "Nguyễn Văn An",
+          student_code: "HS100",
+          temporary_password: password
+        }]
+      });
+      assert.equal(JSON.stringify(report).includes("password_hash"), false);
       assert.equal(database.statements.some(({ sql }) => sql === "COMMIT"), true);
       assert.equal(database.statements.some(({ sql }) => sql.includes("INSERT INTO audit_logs")), true);
+      assert.equal(JSON.stringify(database.statements.filter(({ sql }) => sql.includes("INSERT INTO audit_logs"))).includes(password), false);
     });
   } finally {
     database.restore();
@@ -233,7 +245,8 @@ test("Excel import reports a duplicate detected during INSERT instead of failing
           field: "username",
           code: "DUPLICATE_IN_DATABASE",
           message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
-        }]
+        }],
+        credentials: []
       });
     });
   } finally {
