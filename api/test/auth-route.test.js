@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import bcrypt from "bcryptjs";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 
 process.env.NODE_ENV = "test";
 process.env.APP_ORIGIN = "http://127.0.0.1:3000";
@@ -14,6 +15,16 @@ const { pool } = await import("../src/db.js");
 const { app } = await import("../src/server.js");
 const { clearSessionCookie, setSessionCookie } = await import("../src/auth.js");
 const githubPagesOrigin = "https://hellomaiduchoang-lang.github.io";
+
+function frontendFunction(html, name) {
+  const declaration = new RegExp(`(?:async\\s+)?function ${name}\\(`).exec(html);
+  assert.ok(declaration, `Missing ${name} in frontend`);
+  const start = declaration.index;
+  const boundary = /\r?\n      (?:async )?function |\r?\n      (?:const|let) /g;
+  boundary.lastIndex = start + 1;
+  const match = boundary.exec(html);
+  return html.slice(start, match ? match.index : html.length);
+}
 
 async function withServer(handler) {
   const server = app.listen(0, "127.0.0.1");
@@ -150,6 +161,15 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /headers:\s*options\.body && !isFormData \? \{\s*"Content-Type":\s*"application\/json"\s*\} : undefined/);
     assert.match(html, /rememberGeneratedStudentAccounts\(report\.credentials\)/);
     assert.match(html, /rememberGeneratedStudentAccounts\(result\.credentials\)/);
+    assert.match(html, /result\.credentials\.length !== 1/);
+    assert.match(html, /result\.credentials\.length !== rows\.length/);
+    assert.match(html, /function downloadStudentAccounts\(\)/);
+    assert.match(html, /Tải CSV tài khoản/);
+    assert.match(html, /document\.body\.appendChild\(link\);\s*link\.click\(\);\s*link\.remove\(\)/);
+    assert.match(html, /rows\.length > 50/);
+    assert.match(html, /Mỗi lần chỉ có thể tạo tối đa 50 tài khoản học sinh/);
+    assert.match(html, /Đã tạo \$\{result\.credentials\.length\} tài khoản, nhưng chưa thể làm mới danh sách/);
+    assert.match(html, /Đã nhập tài khoản, nhưng chưa thể làm mới danh sách/);
     assert.match(html, /temporary_password/);
     assert.match(html, /Hãy tạo hoặc import tài khoản học sinh trước khi tải file\./);
     assert.match(html, /Mật khẩu tạm của phiên trước không thể khôi phục\./);
@@ -195,6 +215,205 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.ok(createFormHandler.indexOf("rememberGeneratedStudentAccounts(result.credentials)") <
       createFormHandler.indexOf("await loadClassData()"));
     assert.match(createFormHandler, /Đã tạo tài khoản, nhưng chưa thể làm mới danh sách/);
+  }
+});
+
+test("teacher student credentials stay in memory and download from the stored response", async () => {
+  for (const file of ["../../public/index.html", "../public/index.html"]) {
+    const html = await readFile(new URL(file, import.meta.url), "utf8");
+    const elements = {
+      "export-students": { disabled: true },
+      "student-account-export-status": { textContent: "" },
+      "download-student-accounts": { hidden: true, disabled: true, textContent: "" },
+      "bulk-student-status": { textContent: "" }
+    };
+    const storedValues = new Map();
+    const link = {
+      click() { this.clicked = true; },
+      remove() { this.removed = true; }
+    };
+    let downloadedBlob;
+    const context = {
+      generatedStudentAccounts: [],
+      studentCredentialsSessionMarker: "credentials-marker",
+      sessionStorage: {
+        setItem(key, value) { storedValues.set(key, value); },
+        removeItem(key) { storedValues.delete(key); }
+      },
+      document: {
+        getElementById(id) { return elements[id] || null; },
+        createElement() { return link; },
+        body: { appendChild() {} }
+      },
+      URL: {
+        createObjectURL(blob) { downloadedBlob = blob; return "blob:test"; },
+        revokeObjectURL() {}
+      },
+      Blob,
+      window: { setTimeout() {}, confirm: () => false },
+      showToast() {}
+    };
+
+    vm.runInNewContext([
+      frontendFunction(html, "csvCell"),
+      frontendFunction(html, "rememberGeneratedStudentAccounts"),
+      frontendFunction(html, "updateStudentAccountExport"),
+      frontendFunction(html, "downloadStudentAccounts")
+    ].join("\n"), context);
+
+    const credentials = [{
+      username: "hs100",
+      full_name: "Nguyễn Văn An",
+      student_code: "HS100",
+      temporary_password: "one-time-password"
+    }];
+    assert.equal(
+      vm.runInNewContext(`rememberGeneratedStudentAccounts(${JSON.stringify(credentials)})`, context),
+      1
+    );
+    assert.equal(elements["export-students"].disabled, false);
+    assert.equal(elements["download-student-accounts"].disabled, false);
+    assert.equal(elements["download-student-accounts"].hidden, false);
+    assert.equal(storedValues.get("credentials-marker"), "true");
+
+    const loadClassData = frontendFunction(html, "loadClassData");
+    const loadAdminAccounts = frontendFunction(html, "loadAdminAccounts");
+    assert.doesNotMatch(loadClassData, /clearGeneratedStudentCredentials|clearGeneratedAccounts/);
+    assert.doesNotMatch(loadAdminAccounts, /clearGeneratedStudentCredentials|clearGeneratedAccounts/);
+
+    vm.runInNewContext("downloadStudentAccounts()", context);
+    assert.equal(link.clicked, true);
+    assert.equal(link.removed, true);
+    assert.equal(link.download, "tai-khoan-hoc-sinh.csv");
+    assert.match(await downloadedBlob.text(), /hs100/);
+    assert.match(await downloadedBlob.text(), /one-time-password/);
+    assert.equal(context.generatedStudentAccounts.length, 1);
+  }
+});
+
+test("bulk student creation returns downloadable credentials for every created account", async () => {
+  const memberId = "00000000-0000-4000-8000-000000000020";
+  const memberships = [];
+  const userInserts = [];
+  const auditStatements = [];
+  let nextCode = 51;
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return {
+          rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: memberId,
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql, params = []) => {
+      if (sql.includes("nextval('student_account_code_seq')")) {
+        return { rows: [{ code: nextCode++ }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT 1 FROM users WHERE username")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO users")) {
+        userInserts.push(params);
+        return { rows: [{ id: `00000000-0000-4000-8000-${String(userInserts.length).padStart(12, "0")}` }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO class_members")) {
+        memberships.push(params);
+        return { rows: [{ id: `00000000-0000-4000-8000-${String(memberships.length + 100).padStart(12, "0")}` }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO class_member_roles")) return { rows: [], rowCount: 1 };
+      if (sql.includes("INSERT INTO audit_logs")) auditStatements.push({ sql, params });
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: adminCookie
+        },
+        body: JSON.stringify({ students: ["Nguyễn Văn An", "Trần Thị Bình"] })
+      });
+
+      assert.equal(response.status, 201);
+      const body = await response.json();
+      assert.deepEqual(body.credentials.map(({ username, full_name, student_code }) => ({
+        username, full_name, student_code
+      })), [
+        { username: "hs051", full_name: "Nguyễn Văn An", student_code: "HS051" },
+        { username: "hs052", full_name: "Trần Thị Bình", student_code: "HS052" }
+      ]);
+      assert.equal(userInserts.length, 2);
+      assert.equal(memberships.length, 2);
+      for (const [index, account] of body.credentials.entries()) {
+        assert.equal(await bcrypt.compare(account.temporary_password, userInserts[index][1]), true);
+        assert.notEqual(userInserts[index][1], account.temporary_password);
+      }
+      assert.equal(JSON.stringify(auditStatements).includes(body.credentials[0].temporary_password), false);
+      assert.equal(JSON.stringify(body).includes("password_hash"), false);
+      assert.equal(JSON.stringify(body).includes("DATABASE_URL"), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("bulk student creation rejects more than 50 names before opening a transaction", async () => {
+  let transactionStarted = false;
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return {
+          rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000020",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      if (sql === "BEGIN") transactionStarted = true;
+      return { rows: [], rowCount: 0 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: adminCookie
+        },
+        body: JSON.stringify({ students: Array.from({ length: 51 }, (_, index) => `Student ${index + 1}`) })
+      });
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /1 đến 50/);
+      assert.equal(transactionStarted, false);
+    });
+  } finally {
+    database.restore();
   }
 });
 

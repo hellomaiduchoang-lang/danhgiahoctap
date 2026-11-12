@@ -1421,7 +1421,7 @@
                     <p class="auth-error" id="bulk-student-error" role="alert" hidden></p>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                       <button class="button primary" id="bulk-student-submit" type="submit">Tạo tài khoản và mật khẩu</button>
-                      <button class="button" id="download-student-accounts" type="button" hidden disabled>Tải bảng Excel tài khoản</button>
+                      <button class="button" id="download-student-accounts" type="button" hidden disabled>Tải CSV tài khoản</button>
                       <span id="bulk-student-status" class="form-help" role="status"></span>
                     </div>
                   </form>
@@ -1857,7 +1857,9 @@
         const link = document.createElement("a");
         link.href = url;
         link.download = "tai-khoan-hoc-sinh.csv";
+        document.body.appendChild(link);
         link.click();
+        link.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         if (window.confirm("Đã tải file. Bạn có muốn xóa mật khẩu tạm khỏi bộ nhớ trình duyệt không?")) {
           clearGeneratedStudentCredentials();
@@ -1894,16 +1896,20 @@
       }
 
       function rememberGeneratedStudentAccounts(accounts) {
-        if (!Array.isArray(accounts) || !accounts.length) return generatedStudentAccounts.length;
+        if (!Array.isArray(accounts)) {
+          throw new Error("API không trả về danh sách thông tin đăng nhập mới.");
+        }
+        if (!accounts.length) return generatedStudentAccounts.length;
         const existing = new Map(generatedStudentAccounts.map((account) => [account.student_code, account]));
-        accounts.forEach((account) => {
-          if (account && typeof account.username === "string" &&
-              typeof account.full_name === "string" &&
-              typeof account.student_code === "string" &&
-              typeof account.temporary_password === "string") {
-            existing.set(account.student_code, account);
+        for (const account of accounts) {
+          if (!account || typeof account.username !== "string" || !account.username.trim() ||
+              typeof account.full_name !== "string" || !account.full_name.trim() ||
+              typeof account.student_code !== "string" || !account.student_code.trim() ||
+              typeof account.temporary_password !== "string" || !account.temporary_password) {
+            throw new Error("API trả về thông tin đăng nhập không đầy đủ; hãy đặt lại mật khẩu cho tài khoản mới.");
           }
-        });
+          existing.set(account.student_code, account);
+        }
         generatedStudentAccounts.splice(0, generatedStudentAccounts.length, ...existing.values());
         if (generatedStudentAccounts.length) {
           try { sessionStorage.setItem(studentCredentialsSessionMarker, "true"); } catch {}
@@ -1932,7 +1938,7 @@
           downloadButton.disabled = !hasCredentials;
           downloadButton.textContent = hasCredentials
             ? `Tải tài khoản (${generatedStudentAccounts.length} học sinh)`
-            : "Tải bảng Excel tài khoản";
+            : "Tải CSV tài khoản";
         }
         const status = document.getElementById("bulk-student-status");
         if (status) status.textContent = hasCredentials
@@ -3439,7 +3445,11 @@
           rememberGeneratedStudentAccounts(report.credentials);
           renderStudentImportReport(report);
           event.target.reset();
-          await loadClassData();
+          try {
+            await loadClassData();
+          } catch (error) {
+            showToast(`Đã nhập tài khoản, nhưng chưa thể làm mới danh sách: ${error.message}`);
+          }
         } catch (error) {
           if (error.response?.report) renderStudentImportReport(error.response.report);
           errorBox.textContent = error.message;
@@ -3472,17 +3482,13 @@
         errorBox.hidden = true;
         submit.disabled = true;
         try {
-          let result;
-          try {
-            result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`, {
-              method: "POST",
-              body: { fullName: document.getElementById("new-student-name").value },
-              timeoutMs: 120000
-            });
-          } catch (error) {
-            errorBox.textContent = error.message;
-            errorBox.hidden = false;
-            return;
+          const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students`, {
+            method: "POST",
+            body: { fullName: document.getElementById("new-student-name").value },
+            timeoutMs: 120000
+          });
+          if (!Array.isArray(result?.credentials) || result.credentials.length !== 1) {
+            throw new Error("API không trả về đủ thông tin đăng nhập của tài khoản vừa tạo.");
           }
           rememberGeneratedStudentAccounts(result.credentials);
           event.target.reset();
@@ -3492,6 +3498,9 @@
           } catch (error) {
             showToast(`Đã tạo tài khoản, nhưng chưa thể làm mới danh sách: ${error.message}`);
           }
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
         } finally {
           submit.disabled = false;
         }
@@ -3503,19 +3512,35 @@
         const status = document.getElementById("bulk-student-status");
         const submit = document.getElementById("bulk-student-submit");
         const rows = document.getElementById("bulk-student-list").value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const studentsToCreate = rows;
         errorBox.hidden = true;
         status.textContent = "";
+        if (!rows.length) {
+          errorBox.textContent = "Hãy nhập ít nhất một họ tên học sinh.";
+          errorBox.hidden = false;
+          return;
+        }
+        if (rows.length > 50) {
+          errorBox.textContent = "Mỗi lần chỉ có thể tạo tối đa 50 tài khoản học sinh.";
+          errorBox.hidden = false;
+          return;
+        }
         submit.disabled = true;
         try {
           const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students/bulk`, {
             method: "POST",
-            body: { students: studentsToCreate }
+            body: { students: rows }
           });
+          if (!Array.isArray(result?.credentials) || result.credentials.length !== rows.length) {
+            throw new Error("API không trả về đủ thông tin đăng nhập của các tài khoản vừa tạo.");
+          }
           const generatedCount = rememberGeneratedStudentAccounts(result.credentials);
           event.target.reset();
           status.textContent = `Đã tạo ${result.credentials.length} tài khoản mới; tệp hiện có ${generatedCount} tài khoản trong phiên này.`;
-          await loadClassData();
+          try {
+            await loadClassData();
+          } catch (error) {
+            status.textContent = `Đã tạo ${result.credentials.length} tài khoản, nhưng chưa thể làm mới danh sách: ${error.message}`;
+          }
         } catch (error) {
           errorBox.textContent = error.message;
           errorBox.hidden = false;
