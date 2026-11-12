@@ -351,7 +351,7 @@ app.post(
         row,
         username: String(cells[columnIndexes.username] ?? "").trim().toLowerCase(),
         fullName: String(cells[columnIndexes.full_name] ?? "").trim(),
-        studentCode: String(cells[columnIndexes.student_code] ?? "").trim(),
+        studentCode: String(cells[columnIndexes.student_code] ?? "").trim().toUpperCase(),
         classCode: String(cells[columnIndexes.class_code] ?? "").trim(),
         password: String(cells[columnIndexes.password] ?? "")
       };
@@ -489,11 +489,11 @@ app.post(
     const existing = await pool.query(
       `SELECT username, student_number
        FROM users
-       WHERE username = ANY($1::text[]) OR student_number = ANY($2::text[])`,
+       WHERE username = ANY($1::text[]) OR UPPER(student_number) = ANY($2::text[])`,
       [readyRows.map(({ username }) => username), readyRows.map(({ studentCode }) => studentCode)]
     );
-    const existingUsernames = new Set(existing.rows.map((row) => row.username));
-    const existingStudentCodes = new Set(existing.rows.map((row) => row.student_number));
+    const existingUsernames = new Set(existing.rows.map((row) => row.username.toLowerCase()));
+    const existingStudentCodes = new Set(existing.rows.map((row) => (row.student_number || "").toUpperCase()));
     const insertRows = [];
     for (const student of readyRows) {
       if (existingUsernames.has(student.username) || existingStudentCodes.has(student.studentCode)) {
@@ -514,73 +514,62 @@ app.post(
 
     const client = await pool.connect();
     try {
-      for (let offset = 0; offset < insertRows.length; offset += 50) {
-        const batch = insertRows.slice(offset, offset + 50);
-        const batchErrors = [];
-        let batchCreated = 0;
-        let batchSkipped = 0;
-        await client.query("BEGIN");
-        try {
-          for (const student of batch) {
-            const insertedUser = await client.query(
-              `INSERT INTO users (
-                 username, password_hash, full_name, student_number, is_active, is_teacher,
-                 is_admin, is_super_admin, must_change_password, password_reset_expires_at
-               )
-               VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
-               ON CONFLICT DO NOTHING
-               RETURNING id`,
-              [student.username, student.passwordHash, student.fullName, student.studentCode]
-            );
-            if (!insertedUser.rowCount) {
-              batchSkipped++;
-              batchErrors.push({
-                row: student.row,
-                field: "username",
-                code: "DUPLICATE_IN_DATABASE",
-                message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
-              });
-              continue;
-            }
+      await client.query("BEGIN");
+      for (const student of insertRows) {
+        const insertedUser = await client.query(
+          `INSERT INTO users (
+             username, password_hash, full_name, student_number, is_active, is_teacher,
+             is_admin, is_super_admin, must_change_password, password_reset_expires_at
+           )
+           VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, FALSE, TRUE, NOW() + INTERVAL '24 hours')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [student.username, student.passwordHash, student.fullName, student.studentCode]
+        );
+        if (!insertedUser.rowCount) {
+          report.skipped++;
+          report.errors.push({
+            row: student.row,
+            field: "username",
+            code: "DUPLICATE_IN_DATABASE",
+            message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
+          });
+          continue;
+        }
 
-            const membership = await client.query(
-              "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
-              [student.classroom.id, insertedUser.rows[0].id]
-            );
-            const assignedRole = await client.query(
-              `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
-               SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
-              [student.classroom.id, membership.rows[0].id, student.classroom.teacherMemberId]
-            );
-            if (assignedRole.rowCount !== 1) {
-              const error = new Error("Student role is not configured.");
-              error.code = "STUDENT_ROLE_NOT_CONFIGURED";
-              throw error;
-            }
-            await audit(client, {
-              classId: student.classroom.id,
-              actorUserId: request.user.id,
-              action: "IMPORT_STUDENTS",
-              targetType: "user",
-              targetId: insertedUser.rows[0].id,
-              details: {
-                username: student.username,
-                studentNumber: student.studentCode,
-                classCode: student.classroom.classCode,
-                ip: request.ip
-              }
-            });
-            batchCreated++;
-          }
-          await client.query("COMMIT");
-          report.created += batchCreated;
-          report.skipped += batchSkipped;
-          report.errors.push(...batchErrors);
-        } catch (error) {
-          await client.query("ROLLBACK");
+        const membership = await client.query(
+          "INSERT INTO class_members (class_id, user_id) VALUES ($1, $2) RETURNING id",
+          [student.classroom.id, insertedUser.rows[0].id]
+        );
+        const assignedRole = await client.query(
+          `INSERT INTO class_member_roles (class_id, class_member_id, role_id, granted_by_member_id)
+           SELECT $1, $2, roles.id, $3 FROM roles WHERE roles.name = 'ROLE_STUDENT'`,
+          [student.classroom.id, membership.rows[0].id, student.classroom.teacherMemberId]
+        );
+        if (assignedRole.rowCount !== 1) {
+          const error = new Error("Student role is not configured.");
+          error.code = "STUDENT_ROLE_NOT_CONFIGURED";
           throw error;
         }
+        await audit(client, {
+          classId: student.classroom.id,
+          actorUserId: request.user.id,
+          action: "IMPORT_STUDENTS",
+          targetType: "user",
+          targetId: insertedUser.rows[0].id,
+          details: {
+            username: student.username,
+            studentNumber: student.studentCode,
+            classCode: student.classroom.classCode,
+            ip: request.ip
+          }
+        });
+        report.created++;
       }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
     } finally {
       client.release();
     }

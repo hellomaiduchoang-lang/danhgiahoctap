@@ -85,12 +85,12 @@ function spreadsheetBuffer(records, bookType = "xlsx") {
   return XLSX.write(workbook, { type: "buffer", bookType });
 }
 
-async function postImport(origin, buffer, filename = "students.xlsx") {
+async function postImport(origin, buffer, filename = "students.xlsx", cookie = teacherCookie) {
   const form = new FormData();
   form.append("file", new Blob([buffer]), filename);
   return fetch(`${origin}/api/teacher/students/import`, {
     method: "POST",
-    headers: { Cookie: teacherCookie },
+    headers: cookie ? { Cookie: cookie } : {},
     body: form
   });
 }
@@ -108,16 +108,16 @@ function classLookup(roles = ["ROLE_TEACHER"], permissions = ["students:list"]) 
 test("Excel import creates a student with a bcrypt hash and no password in the report", async () => {
   const password = "Strong-password-123";
   const database = installDatabaseMock({
-    poolQuery: async (sql) => {
+    poolQuery: async (sql, params = []) => {
       const auth = authenticatedTeacherQuery(sql);
       if (sql.includes("FROM auth_sessions")) return auth;
       if (sql.includes("FROM classes")) return { rows: [classLookup()], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
     clientQuery: async (sql, params = []) => {
-      if (sql.includes("SELECT username, student_number")) return { rows: [], rowCount: 0 };
       if (sql.includes("INSERT INTO users")) {
         assert.equal(params[0], "student.one");
+        assert.equal(params[3], "HS100");
         assert.notEqual(params[1], password);
         assert.equal(await bcrypt.compare(password, params[1]), true);
         assert.match(sql, /TRUE,\s*FALSE,\s*FALSE,\s*FALSE,\s*TRUE/);
@@ -131,7 +131,7 @@ test("Excel import creates a student with a bcrypt hash and no password in the r
   try {
     await withServer(async (origin) => {
       const response = await postImport(origin, spreadsheetBuffer([
-        [" Student.One ", "Nguyễn Văn An", "HS100", "C-01", password]
+        [" Student.One ", "Nguyễn Văn An", " hs100 ", "C-01", password]
       ]));
       assert.equal(response.status, 200);
       const report = await response.json();
@@ -175,12 +175,14 @@ test("Excel import accepts legacy XLS workbooks", async () => {
 
 test("Excel import skips a username or student-code collision in the database", async () => {
   const database = installDatabaseMock({
-    poolQuery: async (sql) => {
+    poolQuery: async (sql, params = []) => {
       const auth = authenticatedTeacherQuery(sql);
       if (sql.includes("FROM auth_sessions")) return auth;
       if (sql.includes("FROM classes")) return { rows: [classLookup()], rowCount: 1 };
       if (sql.includes("SELECT username, student_number")) {
-        return { rows: [{ username: "existing.student", student_number: "HS101" }], rowCount: 1 };
+        assert.match(sql, /UPPER\(student_number\) = ANY/);
+        assert.deepEqual(params[1], ["HS102"]);
+        return { rows: [{ username: "existing.other", student_number: "hs102" }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };
     },
@@ -189,7 +191,7 @@ test("Excel import skips a username or student-code collision in the database", 
   try {
     await withServer(async (origin) => {
       const response = await postImport(origin, spreadsheetBuffer([
-        ["existing.student", "Trần Thị Bình", "HS102", "C-01", "Some-password"]
+        ["new.student", "Trần Thị Bình", " hs102 ", "C-01", "Some-password"]
       ]));
       assert.equal(response.status, 200);
       const report = await response.json();
@@ -197,6 +199,42 @@ test("Excel import skips a username or student-code collision in the database", 
       assert.equal(report.skipped, 1);
       assert.equal(report.errors[0].code, "DUPLICATE_IN_DATABASE");
       assert.equal(database.statements.some(({ sql }) => sql.includes("INSERT INTO users")), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("Excel import reports a duplicate detected during INSERT instead of failing the request", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      const auth = authenticatedTeacherQuery(sql);
+      if (sql.includes("FROM auth_sessions")) return auth;
+      if (sql.includes("FROM classes")) return { rows: [classLookup()], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      if (sql.includes("INSERT INTO users")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    }
+  });
+  try {
+    await withServer(async (origin) => {
+      const response = await postImport(origin, spreadsheetBuffer([
+        ["raced.student", "Raced Student", "HS105", "C-01", "Some-password"]
+      ]));
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        created: 0,
+        skipped: 1,
+        failed: 0,
+        errors: [{
+          row: 2,
+          field: "username",
+          code: "DUPLICATE_IN_DATABASE",
+          message: "Tên đăng nhập hoặc mã học sinh đã tồn tại."
+        }]
+      });
     });
   } finally {
     database.restore();
@@ -228,7 +266,7 @@ test("Excel import skips duplicate usernames or student codes within the file", 
       const response = await postImport(origin, spreadsheetBuffer([
         ["duplicate.user", "Nguyễn Văn An", "HS106", "C-01", "Some-password"],
         [" DUPLICATE.USER ", "Trần Thị Bình", "HS107", "C-01", "Some-password"],
-        ["other.user", "Lê Văn Nam", "HS106", "C-01", "Some-password"]
+        ["other.user", "Lê Văn Nam", " hs106 ", "C-01", "Some-password"]
       ]));
       assert.equal(response.status, 200);
       const report = await response.json();
@@ -248,37 +286,123 @@ test("Excel import rejects malformed or unsupported files", async () => {
     clientQuery: async () => ({ rows: [], rowCount: 0 })
   });
 
-  test("Excel import rejects privileged account columns", async () => {
-    const database = installDatabaseMock({
-      poolQuery: async (sql) => {
-        const auth = authenticatedTeacherQuery(sql);
-        if (sql.includes("FROM auth_sessions")) return auth;
-        return { rows: [], rowCount: 0 };
-      },
-      clientQuery: async () => ({ rows: [], rowCount: 0 })
-    });
-    try {
-      await withServer(async (origin) => {
-        const workbook = XLSX.utils.book_new();
-        const sheet = XLSX.utils.aoa_to_sheet([
-          ["username", "full_name", "student_code", "class_code", "password", "is_admin"],
-          ["student.admin", "Student", "HS201", "C-01", "Some-password", "true"]
-        ]);
-        XLSX.utils.book_append_sheet(workbook, sheet, "Students");
-        const response = await postImport(origin, XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
-        assert.equal(response.status, 400);
-        assert.equal(database.statements.some(({ sql }) => sql.includes("INSERT INTO users")), false);
-      });
-    } finally {
-      database.restore();
-    }
-  });
   try {
     await withServer(async (origin) => {
       const malformed = await postImport(origin, Buffer.from("not an Excel workbook"));
       assert.equal(malformed.status, 400);
       const unsupported = await postImport(origin, Buffer.from("anything"), "students.csv");
       assert.equal(unsupported.status, 400);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("Excel import rejects missing and privileged headers before inserting users", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => authenticatedTeacherQuery(sql),
+    clientQuery: async () => ({ rows: [], rowCount: 0 })
+  });
+  try {
+    await withServer(async (origin) => {
+      for (const headers of [
+        ["username", "full_name", "student_code", "class_code"],
+        ["username", "full_name", "student_code", "class_code", "password", "is_teacher"]
+      ]) {
+        const workbook = XLSX.utils.book_new();
+        const sheet = XLSX.utils.aoa_to_sheet([headers, ["student", "Student", "HS201", "C-01", "Secret"]]);
+        XLSX.utils.book_append_sheet(workbook, sheet, "Students");
+        const response = await postImport(origin, XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+        assert.equal(response.status, 400);
+        assert.equal(database.statements.some(({ sql }) => sql.includes("INSERT INTO users")), false);
+      }
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("Excel import returns 401 without an authenticated session", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async () => ({ rows: [], rowCount: 0 }),
+    clientQuery: async () => ({ rows: [], rowCount: 0 })
+  });
+  try {
+    await withServer(async (origin) => {
+      const response = await postImport(origin, spreadsheetBuffer([]), "students.xlsx", null);
+      assert.equal(response.status, 401);
+      assert.equal(database.statements.some(({ sql }) => sql === "BEGIN"), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("Excel import reports invalid rows individually and continues with valid rows", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      const auth = authenticatedTeacherQuery(sql);
+      if (sql.includes("FROM auth_sessions")) return auth;
+      if (sql.includes("FROM classes")) return { rows: [classLookup()], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      if (sql.includes("INSERT INTO users")) return { rows: [{ id: "00000000-0000-4000-8000-000000000045" }], rowCount: 1 };
+      if (sql.includes("INSERT INTO class_members")) return { rows: [{ id: studentMemberId }], rowCount: 1 };
+      if (sql.includes("INSERT INTO class_member_roles")) return { rows: [{ id: 1 }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    }
+  });
+  try {
+    await withServer(async (origin) => {
+      const response = await postImport(origin, spreadsheetBuffer([
+        ["valid.student", "Valid Student", "HS301", "C-01", "Some-password"],
+        ["INVALID USERNAME", "Invalid Student", "HS302", "C-01", "Some-password"]
+      ]));
+      assert.equal(response.status, 200);
+      const report = await response.json();
+      assert.equal(report.created, 1);
+      assert.equal(report.failed, 1);
+      assert.equal(report.errors[0].row, 3);
+      assert.equal(report.errors[0].field, "username");
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("Excel import rolls back the complete file if a related insert fails", async () => {
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      const auth = authenticatedTeacherQuery(sql);
+      if (sql.includes("FROM auth_sessions")) return auth;
+      if (sql.includes("FROM classes")) return { rows: [classLookup()], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      if (sql.includes("INSERT INTO users")) return { rows: [{ id: "00000000-0000-4000-8000-000000000046" }], rowCount: 1 };
+      if (sql.includes("INSERT INTO class_members")) return { rows: [{ id: studentMemberId }], rowCount: 1 };
+      if (sql.includes("INSERT INTO class_member_roles")) {
+        const error = new Error("role configuration failed");
+        error.code = "XX000";
+        throw error;
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  });
+  try {
+    await withServer(async (origin) => {
+      const response = await postImport(origin, spreadsheetBuffer([
+        ["first.student", "First Student", "HS401", "C-01", "Some-password"],
+        ["second.student", "Second Student", "HS402", "C-01", "Some-password"]
+      ]));
+      assert.equal(response.status, 500);
+      const body = await response.json();
+      assert.equal(body.error, "An unexpected server error occurred.");
+      assert.equal(JSON.stringify(body).includes("role configuration failed"), false);
+      assert.equal(database.statements.filter(({ sql }) => sql === "BEGIN").length, 1);
+      assert.equal(database.statements.some(({ sql }) => sql === "COMMIT"), false);
+      assert.equal(database.statements.some(({ sql }) => sql === "ROLLBACK"), true);
     });
   } finally {
     database.restore();

@@ -144,6 +144,10 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /ENABLE ACCOUNT/);
     assert.doesNotMatch(html, /admin-account-confirm-username/);
     assert.match(html, /data-account-action="\$\{account\.isActive \? "disable" : "enable"\}"/);
+    assert.match(html, /formData\.append\("file", file\)/);
+    assert.match(html, /apiRequest\("\/api\/teacher\/students\/import"/);
+    assert.match(html, /credentials:\s*"include"/);
+    assert.match(html, /headers:\s*options\.body && !isFormData \? \{\s*"Content-Type":\s*"application\/json"\s*\} : undefined/);
     const statusHandlerStart = html.indexOf('document.getElementById("admin-account-status-form").addEventListener("submit"');
     const statusHandlerEnd = html.indexOf('document.getElementById("admin-permissions-form").addEventListener("submit"', statusHandlerStart);
     const statusHandler = html.slice(statusHandlerStart, statusHandlerEnd);
