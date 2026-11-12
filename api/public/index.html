@@ -1078,10 +1078,9 @@
                 <div class="panel-title" id="admin-class-preview-title">Xem trước dữ liệu lớp</div>
                 <div class="form-help" id="admin-class-preview-counts" style="margin-top:10px;"></div>
                 <form id="admin-class-delete-form" class="form" style="margin-top:14px;">
-                  <div class="field"><label for="admin-class-confirm-code">Nhập chính xác mã lớp để xác nhận</label><input id="admin-class-confirm-code" autocomplete="off" required /></div>
                   <div class="field"><label for="admin-class-confirm-text">Nhập DELETE CLASS để xác nhận</label><input id="admin-class-confirm-text" autocomplete="off" required /></div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="button" id="admin-class-delete-submit" type="submit">Xóa lớp và dữ liệu liên quan</button>
+                    <button class="button" id="admin-class-delete-submit" type="submit">Tiếp tục xác nhận xóa lớp</button>
                     <button class="button" id="admin-class-preview-close" type="button">Đóng</button>
                   </div>
                 </form>
@@ -2288,7 +2287,7 @@
               <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="button" type="button" data-class-preview="${escapeHtml(classroom.id)}">Chi tiết / xem trước</button>
                 <button class="button" type="button" data-class-status="${escapeHtml(classroom.id)}" data-next-active="${!classroom.is_active}">${classroom.is_active ? "Vô hiệu hóa" : "Khôi phục"}</button>
-                ${currentUser.isSuperAdmin ? `<button class="button" type="button" data-class-delete="${escapeHtml(classroom.id)}" ${classroom.class_code ? "" : "disabled title=\"Cần cấu hình mã lớp trước khi xóa\""}>Xóa vĩnh viễn</button>` : ""}
+                ${currentUser.isSuperAdmin ? `<button class="button" type="button" data-class-delete="${escapeHtml(classroom.id)}">Xóa vĩnh viễn</button>` : ""}
               </div></td>
             </tr>`).join("")
           : `<tr><td colspan="6">Chưa có lớp học.</td></tr>`;
@@ -2302,6 +2301,10 @@
         const countLabels = [
           ["Học sinh", counts.students],
           ["Giáo viên", counts.teachers],
+          ["Tài khoản học sinh chỉ thuộc lớp này sẽ bị xóa", counts.students_to_delete],
+          ["Tài khoản giáo viên chỉ thuộc lớp này sẽ bị xóa", counts.teachers_to_delete],
+          ["Tài khoản Admin/Super Admin bị xóa", 0],
+          ["Tài khoản dùng lớp khác được giữ lại", counts.shared_users],
           ["Thành viên lớp", counts.memberships],
           ["Vai trò thành viên", counts.member_roles],
           ["Quyền riêng thành viên", counts.member_permissions],
@@ -2310,6 +2313,7 @@
           ["Thành viên nhóm", counts.group_members],
           ["Danh mục điểm", counts.conduct_categories],
           ["Sự việc / ghi nhận", counts.conduct_records],
+          ["Bản ghi điểm", counts.conduct_records],
           ["Ghi nhận tích cực", counts.positive_records],
           ["Vi phạm", counts.violations],
           ["Điểm cộng", counts.positive_points],
@@ -2321,16 +2325,15 @@
           ["Nhật ký được giữ lại", counts.retained_audit_logs]
         ];
         document.getElementById("admin-class-preview-title").textContent =
-          `Xem trước: ${classroom.class_name} · ${classroom.class_code || "chưa có mã"} · ${classroom.academic_year}`;
+          `Xem trước: ${classroom.class_name} · ID: ${classroom.id} · ${classroom.class_code || "chưa có mã"} · ${classroom.academic_year}`;
         document.getElementById("admin-class-preview-counts").innerHTML =
           `<ul style="columns:2;column-gap:28px;padding-left:20px;margin:0;">${countLabels.map(([label, count]) =>
             `<li>${escapeHtml(label)}: <strong>${Number(count) || 0}</strong></li>`
-          ).join("")}</ul><p style="margin-top:10px;">Không có bảng comments riêng trong schema. Nhật ký quản trị sẽ được giữ lại; nếu mã lớp chưa được đặt thì không thể xác nhận xóa.</p>`;
-        document.getElementById("admin-class-confirm-code").value = "";
+          ).join("")}</ul><p style="margin-top:10px;">Các dữ liệu lớp trong danh sách sẽ bị xóa vĩnh viễn. Tài khoản học sinh/giáo viên chỉ thuộc lớp này và các phiên đăng nhập của họ cũng bị xóa; tài khoản thuộc lớp khác cùng Admin/Super Admin được giữ nguyên. Nhật ký quản trị được giữ lại.</p>`;
         document.getElementById("admin-class-confirm-text").value = "";
         const deleteForm = document.getElementById("admin-class-delete-form");
         deleteForm.hidden = !currentUser.isSuperAdmin;
-        document.getElementById("admin-class-delete-submit").disabled = !classroom.class_code || !currentUser.isSuperAdmin;
+        document.getElementById("admin-class-delete-submit").disabled = !currentUser.isSuperAdmin;
         document.getElementById("admin-class-preview").hidden = false;
         document.getElementById("admin-class-preview").scrollIntoView({ behavior: "smooth", block: "center" });
       }
@@ -3602,27 +3605,26 @@
       document.getElementById("admin-class-delete-form").addEventListener("submit", async (event) => {
         event.preventDefault();
         if (!adminClassPreview) return;
-        const classCode = document.getElementById("admin-class-confirm-code").value;
         const confirmText = document.getElementById("admin-class-confirm-text").value;
-        if (classCode !== adminClassPreview.class.class_code || confirmText !== "DELETE CLASS") {
-          showToast("Mã lớp hoặc nội dung xác nhận chưa khớp.");
+        if (confirmText !== "DELETE CLASS") {
+          showToast("Nội dung xác nhận chưa khớp chính xác.");
           return;
         }
         if (!currentUser.isSuperAdmin) return;
-        if (!window.confirm(`Xóa vĩnh viễn lớp ${adminClassPreview.class.class_name} cùng dữ liệu liên quan? Tài khoản dùng chung lớp khác sẽ được giữ lại.`)) return;
+        if (!window.confirm(`Bước xác nhận cuối: xóa vĩnh viễn lớp "${adminClassPreview.class.class_name}" (ID ${adminClassPreview.class.id}) và dữ liệu liên quan? Tài khoản thuộc lớp khác và Admin/Super Admin sẽ được giữ lại.`)) return;
         const submit = document.getElementById("admin-class-delete-submit");
         submit.disabled = true;
         try {
           const result = await apiRequest(`/api/admin/classes/${encodeURIComponent(adminClassPreview.class.id)}`, {
             method: "DELETE",
-            body: { confirmClassCode: classCode, confirmText }
+            body: { confirmText }
           });
           document.getElementById("admin-class-preview").hidden = true;
           adminClassPreview = null;
           event.target.reset();
           await loadAdminClasses();
           if (hasAdminPermission("reports:view")) await loadAdminOverview();
-          showToast(`Đã xóa lớp ${result.deletedClass.class_name}; giữ lại ${result.keptSharedUsers} tài khoản còn thuộc lớp khác.`);
+          showToast(`Đã xóa lớp ${result.deletedClass.class_name} và ${result.deletedAccounts} tài khoản chỉ thuộc lớp này; tài khoản thuộc lớp khác được giữ lại.`);
         } catch (error) {
           showToast(error.message);
         } finally {

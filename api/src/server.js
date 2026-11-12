@@ -1462,6 +1462,14 @@ app.get(["/api/admin/classes/:classId/preview", "/api/admin/classes/:classId/del
           JOIN roles ON roles.id = class_member_roles.role_id
           WHERE class_members.class_id = $1 AND class_members.is_active = TRUE
             AND users.is_active = TRUE AND roles.name = 'ROLE_TEACHER') AS teachers,
+         (SELECT COUNT(DISTINCT class_members.user_id)::INT
+          FROM class_members
+          WHERE class_members.class_id = $1
+            AND EXISTS (
+              SELECT 1 FROM class_members AS other_memberships
+              WHERE other_memberships.user_id = class_members.user_id
+                AND other_memberships.class_id <> $1
+            )) AS shared_users,
          (SELECT COUNT(*)::INT FROM class_member_roles WHERE class_id = $1) AS member_roles,
          (SELECT COUNT(*)::INT FROM member_permissions WHERE class_id = $1) AS member_permissions,
          (SELECT COUNT(*)::INT FROM role_requests WHERE class_id = $1) AS role_requests,
@@ -1477,6 +1485,55 @@ app.get(["/api/admin/classes/:classId/preview", "/api/admin/classes/:classId/del
          (SELECT COUNT(*)::INT FROM class_forum_posts WHERE class_id = $1) AS forum_posts,
          (SELECT COUNT(*)::INT FROM class_weekly_point_periods WHERE class_id = $1) AS weekly_periods,
          (SELECT COUNT(*)::INT FROM class_weekly_point_scores WHERE class_id = $1) AS weekly_scores,
+         (SELECT COUNT(DISTINCT users.id)::INT
+          FROM class_members
+          JOIN users ON users.id = class_members.user_id
+          WHERE class_members.class_id = $1
+            AND users.is_admin = FALSE
+            AND users.is_super_admin = FALSE
+            AND (users.is_teacher = TRUE OR EXISTS (
+              SELECT 1
+              FROM class_member_roles
+              JOIN roles ON roles.id = class_member_roles.role_id
+              WHERE class_member_roles.class_member_id = class_members.id
+                AND roles.name = 'ROLE_STUDENT'
+            ))
+            AND NOT EXISTS (
+              SELECT 1 FROM class_members AS other_memberships
+              WHERE other_memberships.user_id = users.id
+                AND other_memberships.class_id <> $1
+            )) AS accounts_to_delete,
+         (SELECT COUNT(DISTINCT users.id)::INT
+          FROM class_members
+          JOIN users ON users.id = class_members.user_id
+          WHERE class_members.class_id = $1
+            AND users.is_admin = FALSE
+            AND users.is_super_admin = FALSE
+            AND users.is_teacher = TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM class_members AS other_memberships
+              WHERE other_memberships.user_id = users.id
+                AND other_memberships.class_id <> $1
+            )) AS teachers_to_delete,
+         (SELECT COUNT(DISTINCT users.id)::INT
+          FROM class_members
+          JOIN users ON users.id = class_members.user_id
+          WHERE class_members.class_id = $1
+            AND users.is_admin = FALSE
+            AND users.is_super_admin = FALSE
+            AND users.is_teacher = FALSE
+            AND EXISTS (
+              SELECT 1
+              FROM class_member_roles
+              JOIN roles ON roles.id = class_member_roles.role_id
+              WHERE class_member_roles.class_member_id = class_members.id
+                AND roles.name = 'ROLE_STUDENT'
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM class_members AS other_memberships
+              WHERE other_memberships.user_id = users.id
+                AND other_memberships.class_id <> $1
+            )) AS students_to_delete,
          (SELECT COUNT(*)::INT FROM audit_logs WHERE class_id = $1) AS retained_audit_logs`,
       [request.params.classId]
     );
@@ -1531,10 +1588,8 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
     if (!UUID_PATTERN.test(request.params.classId)) {
       return response.status(400).json({ error: "Mã lớp không hợp lệ." });
     }
-    if (typeof request.body?.confirmClassCode !== "string" ||
-        typeof request.body?.confirmText !== "string" ||
-        request.body.confirmText !== "DELETE CLASS") {
-      return response.status(400).json({ error: "Cần nhập đúng mã lớp và nội dung xác nhận DELETE CLASS." });
+    if (request.body?.confirmText !== "DELETE CLASS") {
+      return response.status(400).json({ error: "Cần nhập chính xác DELETE CLASS để xác nhận." });
     }
 
     const client = await pool.connect();
@@ -1550,10 +1605,6 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
         return response.status(404).json({ error: "Không tìm thấy lớp." });
       }
       const classInfo = classResult.rows[0];
-      if (!classInfo.class_code || request.body.confirmClassCode !== classInfo.class_code) {
-        await client.query("ROLLBACK");
-        return response.status(409).json({ error: "Mã xác nhận không khớp chính xác với mã lớp." });
-      }
 
       await client.query(
         `SELECT class_members.id
@@ -1563,18 +1614,20 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
          FOR UPDATE OF class_members, users`,
         [request.params.classId]
       );
-      const orphanStudentResult = await client.query(
+      const orphanUserResult = await client.query(
         `SELECT DISTINCT users.id
          FROM class_members
          JOIN users ON users.id = class_members.user_id
-         JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
-         JOIN roles ON roles.id = class_member_roles.role_id
          WHERE class_members.class_id = $1
-           AND roles.name = 'ROLE_STUDENT'
-           AND users.student_number IS NOT NULL
-           AND users.is_teacher = FALSE
            AND users.is_admin = FALSE
            AND users.is_super_admin = FALSE
+           AND (users.is_teacher = TRUE OR EXISTS (
+             SELECT 1
+             FROM class_member_roles
+             JOIN roles ON roles.id = class_member_roles.role_id
+             WHERE class_member_roles.class_member_id = class_members.id
+               AND roles.name = 'ROLE_STUDENT'
+           ))
            AND NOT EXISTS (
              SELECT 1 FROM class_members AS other_memberships
              WHERE other_memberships.user_id = users.id
@@ -1582,7 +1635,7 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
            )`,
         [request.params.classId]
       );
-      const orphanStudentIds = orphanStudentResult.rows.map((row) => row.id);
+      const orphanUserIds = orphanUserResult.rows.map((row) => row.id);
       const sharedUsersResult = await client.query(
         `SELECT COUNT(DISTINCT class_members.user_id)::INT AS count
          FROM class_members
@@ -1596,6 +1649,20 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
       );
       const keptSharedUsers = sharedUsersResult.rows[0]?.count || 0;
       const deletedRelations = {};
+      await audit(client, {
+        classId: request.params.classId,
+        actorUserId: request.user.id,
+        action: "DELETE_CLASS_STARTED",
+        targetType: "class",
+        targetId: request.params.classId,
+        details: {
+          classCode: classInfo.class_code,
+          className: classInfo.class_name,
+          accountCountToDelete: orphanUserIds.length,
+          keptSharedUsers,
+          ip: request.ip
+        }
+      });
       const relationDeletes = [
         ["evidence_files", "DELETE FROM evidence_files WHERE class_id = $1"],
         ["weekly_scores", "DELETE FROM class_weekly_point_scores WHERE class_id = $1"],
@@ -1620,42 +1687,26 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
       );
       deletedRelations.class_members = memberships.rowCount;
 
-      let deletedStudents = 0;
-      if (orphanStudentIds.length) {
+      let deletedAccounts = 0;
+      if (orphanUserIds.length) {
         const sessions = await client.query(
           "DELETE FROM auth_sessions WHERE user_id = ANY($1::uuid[])",
-          [orphanStudentIds]
+          [orphanUserIds]
         );
         deletedRelations.auth_sessions = sessions.rowCount;
-        const students = await client.query(
+        const users = await client.query(
           `DELETE FROM users
            WHERE id = ANY($1::uuid[])
-             AND is_teacher = FALSE
              AND is_admin = FALSE
              AND is_super_admin = FALSE
            RETURNING id`,
-          [orphanStudentIds]
+          [orphanUserIds]
         );
-        deletedStudents = students.rowCount;
+        deletedAccounts = users.rowCount;
       } else {
         deletedRelations.auth_sessions = 0;
       }
 
-      await audit(client, {
-        classId: request.params.classId,
-        actorUserId: request.user.id,
-        action: "DELETE_CLASS",
-        targetType: "class",
-        targetId: request.params.classId,
-        details: {
-          classCode: classInfo.class_code,
-          className: classInfo.class_name,
-          deletedRelations,
-          deletedStudents,
-          keptSharedUsers,
-          ip: request.ip
-        }
-      });
       const deletedClassResult = await client.query(
         "DELETE FROM classes WHERE id = $1 RETURNING id",
         [request.params.classId]
@@ -1665,6 +1716,20 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
         error.code = "CLASS_DELETE_RACE";
         throw error;
       }
+      await audit(client, {
+        actorUserId: request.user.id,
+        action: "DELETE_CLASS_COMPLETED",
+        targetType: "class",
+        targetId: request.params.classId,
+        details: {
+          classCode: classInfo.class_code,
+          className: classInfo.class_name,
+          deletedRelations,
+          deletedAccounts,
+          keptSharedUsers,
+          ip: request.ip
+        }
+      });
       await client.query("COMMIT");
       response.json({
         deletedClass: {
@@ -1673,11 +1738,14 @@ app.delete("/api/admin/classes/:classId", requireAuthentication, requireSameOrig
           class_name: classInfo.class_name
         },
         deletedRelations,
-        deletedStudents,
+        deletedAccounts,
         keptSharedUsers
       });
     } catch (error) {
       await client.query("ROLLBACK");
+      if (error.code === "23503") {
+        return response.status(409).json({ error: "Không thể xóa an toàn vì còn dữ liệu liên quan chưa được xử lý." });
+      }
       throw error;
     } finally {
       client.release();

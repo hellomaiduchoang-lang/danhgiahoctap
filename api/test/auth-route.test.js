@@ -156,6 +156,18 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /Bạn có muốn xóa mật khẩu tạm khỏi bộ nhớ trình duyệt không\?/);
     assert.match(html, /sessionStorage\.setItem\(studentCredentialsSessionMarker, "true"\)/);
     assert.doesNotMatch(html, /sessionStorage\.setItem\([^,]+,\s*JSON\.stringify\(generatedStudentAccounts/);
+    assert.match(html, /classroom\.class_name\} · ID: \$\{classroom\.id\}/);
+    assert.match(html, /counts\.students_to_delete/);
+    assert.match(html, /counts\.teachers_to_delete/);
+    assert.match(html, /counts\.conduct_records/);
+    assert.match(html, /counts\.violations/);
+    assert.match(html, /counts\.weekly_scores/);
+    assert.match(html, /confirmText !== "DELETE CLASS"/);
+    assert.match(html, /Bước xác nhận cuối:/);
+    assert.match(html, /body:\s*\{\s*confirmText\s*\}/);
+    assert.doesNotMatch(html, /admin-class-confirm-code|confirmClassCode/);
+    assert.doesNotMatch(html, /classroom\.class_code \? "" : "disabled/);
+    assert.match(html, /Tài khoản thuộc lớp khác cùng Admin\/Super Admin được giữ nguyên/);
     const statusHandlerStart = html.indexOf('document.getElementById("admin-account-status-form").addEventListener("submit"');
     const statusHandlerEnd = html.indexOf('document.getElementById("admin-permissions-form").addEventListener("submit"', statusHandlerStart);
     const statusHandler = html.slice(statusHandlerStart, statusHandlerEnd);
