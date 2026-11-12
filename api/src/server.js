@@ -1477,6 +1477,11 @@ app.get(["/api/admin/classes/:classId/preview", "/api/admin/classes/:classId/del
          (SELECT COUNT(*)::INT FROM group_members WHERE class_id = $1) AS group_members,
          (SELECT COUNT(*)::INT FROM conduct_categories WHERE class_id = $1) AS conduct_categories,
          (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1) AS conduct_records,
+         (SELECT COALESCE(SUM(points), 0)::INT FROM conduct_records WHERE class_id = $1) AS points,
+         (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1) AS incidents,
+         (SELECT COUNT(*)::INT
+          FROM conduct_records
+          WHERE class_id = $1 AND BTRIM(description) <> '') AS comments,
          (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'positive') AS positive_records,
          (SELECT COUNT(*)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'negative') AS violations,
          (SELECT COALESCE(SUM(points), 0)::INT FROM conduct_records WHERE class_id = $1 AND kind = 'positive') AS positive_points,
@@ -1539,7 +1544,12 @@ app.get(["/api/admin/classes/:classId/preview", "/api/admin/classes/:classId/del
     );
     response.json({
       class: classResult.rows[0],
-      relatedCounts: countsResult.rows[0]
+      relatedCounts: countsResult.rows[0],
+      warnings: [
+        "Dữ liệu lớp, sự việc, điểm, nhận xét, thành viên và các quan hệ liên quan sẽ bị xóa vĩnh viễn.",
+        "Không có bảng nhận xét riêng trong schema; số nhận xét được đếm từ các mô tả trong conduct_records.",
+        "Tài khoản Admin/Super Admin và tài khoản còn thuộc lớp khác sẽ được giữ lại; nhật ký quản trị được giữ lại."
+      ]
     });
   }));
 

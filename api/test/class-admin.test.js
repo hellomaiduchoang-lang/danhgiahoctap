@@ -134,7 +134,7 @@ test("class admin endpoints reject teachers", async () => {
   const database = installDatabaseMock({ user: account({ isAdmin: false }) });
   try {
     await withServer(async (origin) => {
-      const response = await fetch(`${origin}/api/admin/classes/${classId}/preview`, {
+      const response = await fetch(`${origin}/api/admin/classes/${classId}/deletion-preview`, {
         headers: requestHeaders(adminCookie)
       });
       assert.equal(response.status, 403);
@@ -216,7 +216,7 @@ test("ordinary Admin cannot permanently delete a class", async () => {
       const response = await fetch(`${origin}/api/admin/classes/${classId}`, {
         method: "DELETE",
         headers: { ...requestHeaders(adminCookie), "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmClassCode: "TEST-01", confirmText: "DELETE CLASS" })
+        body: JSON.stringify({ confirmText: "DELETE CLASS" })
       });
       assert.equal(response.status, 403);
       assert.equal(database.statements.some(({ sql }) => sql === "BEGIN"), false);
@@ -248,6 +248,40 @@ test("Admin can preview class data without deleting anything", async () => {
       assert.equal(body.relatedCounts.weekly_scores, 2);
       assert.equal(body.relatedCounts.accounts_to_delete, 2);
       assert.equal(body.relatedCounts.shared_users, 1);
+      assert.equal(database.statements.some(({ sql }) => sql.startsWith("DELETE ")), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("Admin can preview a class without a class code and receives deletion counts and warnings", async () => {
+  const noCodeClass = { ...classRecord(), class_code: null };
+  const counts = { ...relatedCounts(), points: 13, incidents: 4, comments: 3 };
+  const database = installDatabaseMock({
+    user: account({ isAdmin: true }),
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM classes WHERE id = $1")) return { rows: [noCodeClass], rowCount: 1 };
+      if (sql.includes("AS retained_audit_logs")) {
+        assert.match(sql, /COALESCE\(SUM\(points\), 0\).*AS points/);
+        assert.match(sql, /BTRIM\(description\) <> ''\).*AS comments/);
+        return { rows: [counts], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+  });
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/admin/classes/${classId}/deletion-preview`, {
+        headers: requestHeaders(adminCookie)
+      });
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.deepEqual(body.class, noCodeClass);
+      assert.equal(body.relatedCounts.points, 13);
+      assert.equal(body.relatedCounts.incidents, 4);
+      assert.equal(body.relatedCounts.comments, 3);
+      assert.ok(body.warnings.some((warning) => warning.includes("conduct_records")));
       assert.equal(database.statements.some(({ sql }) => sql.startsWith("DELETE ")), false);
     });
   } finally {

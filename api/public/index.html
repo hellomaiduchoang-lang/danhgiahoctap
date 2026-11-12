@@ -1080,7 +1080,7 @@
                 <form id="admin-class-delete-form" class="form" style="margin-top:14px;">
                   <div class="field"><label for="admin-class-confirm-text">Nhập DELETE CLASS để xác nhận</label><input id="admin-class-confirm-text" autocomplete="off" required /></div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="button" id="admin-class-delete-submit" type="submit">Tiếp tục xác nhận xóa lớp</button>
+                    <button class="button" id="admin-class-delete-submit" type="submit" disabled>Xóa vĩnh viễn</button>
                     <button class="button" id="admin-class-preview-close" type="button">Đóng</button>
                   </div>
                 </form>
@@ -2294,13 +2294,18 @@
       }
 
       async function loadAdminClassDeletionPreview(classId) {
-        const result = await apiRequest(`/api/admin/classes/${encodeURIComponent(classId)}/preview`);
+        adminClassPreview = null;
+        document.getElementById("admin-class-preview").hidden = true;
+        const result = await apiRequest(`/api/admin/classes/${encodeURIComponent(classId)}/deletion-preview`);
         adminClassPreview = result;
         const classroom = result.class;
         const counts = result.relatedCounts;
         const countLabels = [
           ["Học sinh", counts.students],
           ["Giáo viên", counts.teachers],
+          ["Tổng điểm cộng và điểm trừ", counts.points],
+          ["Số sự việc / ghi nhận", counts.incidents],
+          ["Số nhận xét / mô tả", counts.comments],
           ["Tài khoản học sinh chỉ thuộc lớp này sẽ bị xóa", counts.students_to_delete],
           ["Tài khoản giáo viên chỉ thuộc lớp này sẽ bị xóa", counts.teachers_to_delete],
           ["Tài khoản Admin/Super Admin bị xóa", 0],
@@ -2329,7 +2334,9 @@
         document.getElementById("admin-class-preview-counts").innerHTML =
           `<ul style="columns:2;column-gap:28px;padding-left:20px;margin:0;">${countLabels.map(([label, count]) =>
             `<li>${escapeHtml(label)}: <strong>${Number(count) || 0}</strong></li>`
-          ).join("")}</ul><p style="margin-top:10px;">Các dữ liệu lớp trong danh sách sẽ bị xóa vĩnh viễn. Tài khoản học sinh/giáo viên chỉ thuộc lớp này và các phiên đăng nhập của họ cũng bị xóa; tài khoản thuộc lớp khác cùng Admin/Super Admin được giữ nguyên. Nhật ký quản trị được giữ lại.</p>`;
+          ).join("")}</ul><ul style="margin-top:10px;">${(result.warnings || []).map((warning) =>
+            `<li>${escapeHtml(warning)}</li>`
+          ).join("")}</ul><p style="margin-top:10px;">Tài khoản thuộc lớp khác cùng Admin/Super Admin được giữ nguyên; nhật ký quản trị được giữ lại.</p>`;
         document.getElementById("admin-class-confirm-text").value = "";
         const deleteForm = document.getElementById("admin-class-delete-form");
         deleteForm.hidden = !currentUser.isSuperAdmin;
@@ -3602,6 +3609,10 @@
         document.getElementById("admin-class-preview").hidden = true;
         adminClassPreview = null;
       });
+      document.getElementById("admin-class-confirm-text").addEventListener("input", (event) => {
+        document.getElementById("admin-class-delete-submit").disabled =
+          !currentUser?.isSuperAdmin || event.target.value !== "DELETE CLASS";
+      });
       document.getElementById("admin-class-delete-form").addEventListener("submit", async (event) => {
         event.preventDefault();
         if (!adminClassPreview) return;
@@ -3626,9 +3637,19 @@
           if (hasAdminPermission("reports:view")) await loadAdminOverview();
           showToast(`Đã xóa lớp ${result.deletedClass.class_name} và ${result.deletedAccounts} tài khoản chỉ thuộc lớp này; tài khoản thuộc lớp khác được giữ lại.`);
         } catch (error) {
-          showToast(error.message);
+          const messages = {
+            400: "Nội dung xác nhận hoặc thông tin lớp không hợp lệ.",
+            401: "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
+            403: "Chỉ Super Admin mới được xóa vĩnh viễn lớp.",
+            404: "Không tìm thấy lớp để xóa.",
+            409: "Không thể xóa an toàn do dữ liệu liên quan.",
+            500: "Máy chủ gặp lỗi khi xóa lớp; thao tác đã được hoàn tác."
+          };
+          const message = messages[error.status] || error.message;
+          showToast(error.response?.error ? `${message} ${error.response.error}` : message);
         } finally {
-          submit.disabled = false;
+          submit.disabled = !currentUser?.isSuperAdmin ||
+            document.getElementById("admin-class-confirm-text").value !== "DELETE CLASS";
         }
       });
       document.getElementById("admin-account-rows").addEventListener("click", async (event) => {
