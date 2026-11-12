@@ -12,6 +12,7 @@
     "db:migrate": "node src/scripts/migrate.js",
     "db:create-super-admin": "node src/scripts/create-super-admin.js",
     "db:reset-demo": "node src/scripts/reset-demo-data.js",
+    "db:delete-test-accounts": "node src/scripts/delete-test-accounts.js",
     "db:seed": "node src/scripts/seed.js",
     "db:seed:admin": "node src/scripts/seed-admin.js",
     "test": "node --test"
