@@ -59,6 +59,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const publicDirectory = path.join(root, "public");
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_STUDENT_IMPORT_SIZE = 5 * 1024 * 1024;
+const isValidWeekNumber = (value) => Number.isInteger(value) && value >= 1 && value <= 53;
 const studentImportUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_STUDENT_IMPORT_SIZE, files: 1, fields: 0, parts: 1 }
@@ -624,13 +625,15 @@ app.post("/api/classes/:classId/students", requireAuthentication, requireSameOri
       action: "student.account_created", targetType: "user", targetId: user.rows[0].id,
       details: { username } });
     await client.query("COMMIT");
+    const credentials = {
+      username,
+      full_name: fullName,
+      student_code: studentNumber,
+      temporary_password: password
+    };
     response.status(201).json({
-      credentials: [{
-        username,
-        full_name: fullName,
-        student_code: studentNumber,
-        temporary_password: password
-      }]
+      ...credentials,
+      credentials: [credentials]
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -1202,7 +1205,7 @@ app.get("/api/admin/audit", requireAuthentication, requireAdminPermission("audit
      WHERE audit_logs.action LIKE 'admin.%' OR audit_logs.action IN (
        'CREATE_USER', 'DISABLE_USER', 'ENABLE_USER', 'RESET_PASSWORD',
        'CREATE_CLASS', 'DISABLE_CLASS', 'DELETE_CLASS', 'IMPORT_STUDENTS',
-       'class.leadership_updated', 'class.group_saved', 'class.group_member_moved',
+       'class.leadership_updated', 'class.group_saved', 'class.group_member_moved', 'conduct.admin_updated',
        'student.removed_from_class', 'conduct.weekly_scores_archived'
      )
      ORDER BY audit_logs.created_at DESC LIMIT 250`
@@ -1964,24 +1967,231 @@ app.get("/api/classes/:classId/conduct-records", requireAuthentication, classPer
     return response.status(403).json({ error: "You do not have permission to view conduct records." });
   }
 
+  const { weekNumber, schoolYear, studentId } = request.query;
+  if ((weekNumber !== undefined && (!/^\d+$/.test(weekNumber) || !isValidWeekNumber(Number(weekNumber)))) ||
+      (schoolYear !== undefined && (typeof schoolYear !== "string" || !schoolYear.trim() || schoolYear.length > 20)) ||
+      (studentId !== undefined && (typeof studentId !== "string" || !studentId.trim() || studentId.length > 32))) {
+    return response.status(400).json({ error: "Bộ lọc điểm rèn luyện không hợp lệ." });
+  }
+
+  const values = [request.params.classId];
+  if (scope.includes("$2")) values.push(memberId);
+  const filters = [];
+  const bind = (value) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+  if (weekNumber !== undefined) filters.push(`AND conduct_records.week_number = ${bind(Number(weekNumber))}`);
+  if (schoolYear !== undefined) filters.push(`AND conduct_records.school_year = ${bind(schoolYear.trim())}`);
+  if (studentId !== undefined) filters.push(`AND users.student_number = ${bind(studentId.trim())}`);
+
   const result = await pool.query(
     `SELECT conduct_records.id, users.student_number AS "studentId",
             conduct_records.title, conduct_records.description, conduct_records.kind,
             conduct_records.points, conduct_records.record_date::TEXT AS date,
             conduct_records.source, conduct_records.evidence_name AS evidence, conduct_records.status,
             recorder.full_name AS recorder, conduct_records.created_at::TEXT AS "createdAt",
-            FLOOR(EXTRACT(EPOCH FROM conduct_records.created_at) * 1000000)::BIGINT AS "createdAtUs"
+            FLOOR(EXTRACT(EPOCH FROM conduct_records.created_at) * 1000000)::BIGINT AS "createdAtUs",
+            conduct_records.week_number AS "weekNumber", conduct_records.school_year AS "schoolYear"
      FROM conduct_records
      JOIN class_members AS student_member ON student_member.id = conduct_records.student_member_id
      JOIN users ON users.id = student_member.user_id
      JOIN class_members AS recorder_member ON recorder_member.id = conduct_records.recorder_member_id
      JOIN users AS recorder ON recorder.id = recorder_member.user_id
-     WHERE conduct_records.class_id = $1 ${scope}
+     WHERE conduct_records.class_id = $1 ${scope} ${filters.join(" ")}
      ORDER BY conduct_records.record_date DESC, conduct_records.created_at DESC`,
-    scope.includes("$2") ? [request.params.classId, memberId] : [request.params.classId]
+    values
   );
   response.json({ incidents: result.rows });
 }));
+
+app.get("/api/admin/conduct-records", requireAuthentication, requireAdminAccount, asyncRoute(async (request, response) => {
+  const { classId, weekNumber, schoolYear, studentId } = request.query;
+  if ((classId !== undefined && !UUID_PATTERN.test(classId)) ||
+      (weekNumber !== undefined && (!/^\d+$/.test(weekNumber) || !isValidWeekNumber(Number(weekNumber)))) ||
+      (schoolYear !== undefined && (typeof schoolYear !== "string" || !schoolYear.trim() || schoolYear.length > 20)) ||
+      (studentId !== undefined && (typeof studentId !== "string" || !studentId.trim() || studentId.length > 32))) {
+    return response.status(400).json({ error: "Bộ lọc điểm rèn luyện không hợp lệ." });
+  }
+
+  const values = [];
+  const filters = [];
+  const bind = (column, value) => {
+    values.push(value);
+    filters.push(`AND ${column} = $${values.length}`);
+  };
+  if (classId !== undefined) bind("conduct_records.class_id", classId);
+  if (weekNumber !== undefined) bind("conduct_records.week_number", Number(weekNumber));
+  if (schoolYear !== undefined) bind("conduct_records.school_year", schoolYear.trim());
+  if (studentId !== undefined) bind("student.student_number", studentId.trim());
+
+  const result = await pool.query(
+    `SELECT conduct_records.id, conduct_records.class_id AS "classId",
+            classes.name AS "className", classes.academic_year AS "classAcademicYear",
+            conduct_records.student_member_id AS "studentMemberId",
+            student.student_number AS "studentId", student.full_name AS "studentName",
+            conduct_records.category_id AS "categoryId", conduct_records.title,
+            conduct_records.description, conduct_records.kind, conduct_records.points,
+            conduct_records.record_date::TEXT AS date, conduct_records.source,
+            conduct_records.evidence_name AS "evidenceName", conduct_records.status,
+            conduct_records.week_number AS "weekNumber", conduct_records.school_year AS "schoolYear",
+            recorder.full_name AS recorder
+     FROM conduct_records
+     JOIN classes ON classes.id = conduct_records.class_id
+     JOIN class_members AS student_member ON student_member.id = conduct_records.student_member_id
+     JOIN users AS student ON student.id = student_member.user_id
+     JOIN class_members AS recorder_member ON recorder_member.id = conduct_records.recorder_member_id
+     JOIN users AS recorder ON recorder.id = recorder_member.user_id
+     WHERE TRUE ${filters.join(" ")}
+     ORDER BY conduct_records.record_date DESC, conduct_records.created_at DESC`,
+    values
+  );
+  response.json({ records: result.rows });
+}));
+
+app.get("/api/admin/classes/:classId/conduct-options", requireAuthentication, requireAdminAccount,
+  asyncRoute(async (request, response) => {
+    if (!UUID_PATTERN.test(request.params.classId)) {
+      return response.status(400).json({ error: "Class ID is invalid." });
+    }
+    const [students, categories] = await Promise.all([
+      pool.query(
+        `SELECT users.student_number AS id, users.full_name AS name
+         FROM class_members
+         JOIN users ON users.id = class_members.user_id
+         WHERE class_members.class_id = $1 AND class_members.is_active = TRUE
+           AND EXISTS (
+             SELECT 1 FROM class_member_roles
+             JOIN roles ON roles.id = class_member_roles.role_id
+             WHERE class_member_roles.class_member_id = class_members.id
+               AND roles.name = 'ROLE_STUDENT'
+           )
+         ORDER BY users.full_name`,
+        [request.params.classId]
+      ),
+      pool.query(
+        `SELECT id, name, kind, points FROM conduct_categories
+         WHERE class_id = $1 ORDER BY kind, name`,
+        [request.params.classId]
+      )
+    ]);
+    response.json({ students: students.rows, categories: categories.rows });
+  }));
+
+app.put("/api/admin/conduct-records/:recordId", requireAuthentication, requireSameOrigin,
+  requireAdminAccount, asyncRoute(async (request, response) => {
+    if (!UUID_PATTERN.test(request.params.recordId)) {
+      return response.status(400).json({ error: "Mã bản ghi không hợp lệ." });
+    }
+    const {
+      studentId, categoryId, description, date, source, evidenceName, status, weekNumber, schoolYear
+    } = request.body || {};
+    if (typeof studentId !== "string" || studentId.length > 32 ||
+        (categoryId !== null && !UUID_PATTERN.test(categoryId || "")) || !isValidWeekNumber(weekNumber) ||
+        typeof schoolYear !== "string" || !schoolYear.trim() || schoolYear.trim().length > 20 ||
+        typeof description !== "string" || description.length > 500 ||
+        typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        Number.isNaN(Date.parse(`${date}T00:00:00.000Z`)) ||
+        new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) !== date ||
+        typeof source !== "string" || source.length > 80 ||
+        typeof evidenceName !== "string" || evidenceName.length > 255 ||
+        !["pending", "verified"].includes(status)) {
+      return response.status(400).json({ error: "Thông tin bản ghi điểm không hợp lệ." });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const current = await client.query(
+        "SELECT class_id, category_id, title, kind, points FROM conduct_records WHERE id = $1 FOR UPDATE",
+        [request.params.recordId]
+      );
+      if (!current.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(404).json({ error: "Không tìm thấy bản ghi điểm." });
+      }
+      const classId = current.rows[0].class_id;
+      const student = await client.query(
+        `SELECT class_members.id
+         FROM class_members
+         JOIN users ON users.id = class_members.user_id
+         JOIN class_member_roles ON class_member_roles.class_member_id = class_members.id
+         JOIN roles ON roles.id = class_member_roles.role_id
+         WHERE class_members.class_id = $1 AND users.student_number = $2
+           AND roles.name = 'ROLE_STUDENT' AND class_members.is_active = TRUE`,
+        [classId, studentId]
+      );
+      if (!student.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(400).json({ error: "Học sinh không thuộc lớp của bản ghi này." });
+      }
+      let updatedCategory = {
+        id: current.rows[0].category_id,
+        name: current.rows[0].title,
+        kind: current.rows[0].kind,
+        points: current.rows[0].points
+      };
+      if (categoryId) {
+        const category = await client.query(
+          "SELECT id, name, kind, points FROM conduct_categories WHERE id = $1 AND class_id = $2",
+          [categoryId, classId]
+        );
+        if (!category.rowCount) {
+          await client.query("ROLLBACK");
+          return response.status(400).json({ error: "Mức điểm không thuộc lớp của bản ghi này." });
+        }
+        updatedCategory = category.rows[0];
+      }
+
+      const trimmedSchoolYear = schoolYear.trim();
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`${classId}:${student.rows[0].id}:${weekNumber}:${trimmedSchoolYear}`]
+      );
+      const duplicate = await client.query(
+        `SELECT 1 FROM conduct_records
+         WHERE class_id = $1 AND student_member_id = $2 AND week_number = $3
+           AND school_year = $4 AND id <> $5
+         LIMIT 1`,
+        [classId, student.rows[0].id, weekNumber, trimmedSchoolYear, request.params.recordId]
+      );
+      if (duplicate.rowCount) {
+        await client.query("ROLLBACK");
+        return response.status(409).json({ error: "Học sinh đã có bản ghi điểm trong tuần và năm học này." });
+      }
+
+      await client.query(
+        `UPDATE conduct_records
+         SET student_member_id = $2, category_id = $3, title = $4, description = $5,
+             kind = $6, points = $7, record_date = $8, source = $9, evidence_name = $10,
+             status = $11, week_number = $12, school_year = $13
+         WHERE id = $1`,
+        [
+          request.params.recordId, student.rows[0].id, updatedCategory.id, updatedCategory.name,
+          description.trim(), updatedCategory.kind, updatedCategory.points, date,
+          source.trim(), evidenceName.trim(), status, weekNumber, trimmedSchoolYear
+        ]
+      );
+      await audit(client, {
+        classId,
+        actorUserId: request.user.id,
+        action: "conduct.admin_updated",
+        targetType: "conduct_record",
+        targetId: request.params.recordId,
+        details: { studentId, categoryId, weekNumber, schoolYear: trimmedSchoolYear, status }
+      });
+      await client.query("COMMIT");
+      response.json({ id: request.params.recordId, status, weekNumber, schoolYear: trimmedSchoolYear });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (error.code === "23505") {
+        return response.status(409).json({ error: "Học sinh đã có bản ghi điểm trong tuần và năm học này." });
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
 
 app.get("/api/classes/:classId/conduct-categories", requireAuthentication, classPermission("classes:read"), asyncRoute(async (request, response) => {
   const result = await pool.query(
@@ -2017,11 +2227,38 @@ app.post("/api/classes/:classId/conduct-categories", requireAuthentication, requ
     } finally { client.release(); }
   }));
 
-app.post("/api/classes/:classId/conduct-records", requireAuthentication, requireSameOrigin, classPermission("conduct:create"), asyncRoute(async (request, response) => {
-  const { studentId, categoryId, description = "", date, source = "", evidenceName = "" } = request.body || {};
+async function requireConductCreateAccess(request, response, next) {
+  try {
+    if (!UUID_PATTERN.test(request.params.classId)) {
+      return response.status(400).json({ error: "Class ID is invalid." });
+    }
+    const access = await loadClassAccess(request.user.id, request.params.classId);
+    if (!access) {
+      const classroom = await pool.query("SELECT 1 FROM classes WHERE id = $1 AND is_active = TRUE", [request.params.classId]);
+      return response.status(classroom.rowCount ? 403 : 404).json({
+        error: classroom.rowCount ? "Bạn không được phân công trong lớp này." : "Class not found."
+      });
+    }
+    if (request.user.isTeacher && !access.roles.has("ROLE_TEACHER")) {
+      return response.status(403).json({ error: "Giáo viên chỉ được nhập điểm cho lớp mình phụ trách." });
+    }
+    if (!access.permissions.has("conduct:create")) {
+      return response.status(403).json({ error: "You do not have permission to create conduct records." });
+    }
+    request.classAccess = access;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+app.post("/api/classes/:classId/conduct-records", requireAuthentication, requireSameOrigin, requireConductCreateAccess, asyncRoute(async (request, response) => {
+  const { studentId, categoryId, description = "", date, source = "", evidenceName = "", weekNumber, schoolYear } = request.body || {};
   if (
     typeof studentId !== "string" || !UUID_PATTERN.test(categoryId || "") ||
     studentId.length > 32 ||
+    !isValidWeekNumber(weekNumber) ||
+    typeof schoolYear !== "string" || !schoolYear.trim() || schoolYear.trim().length > 20 ||
     typeof description !== "string" || description.length > 500 ||
     typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
     Number.isNaN(Date.parse(`${date}T00:00:00.000Z`)) ||
@@ -2075,15 +2312,31 @@ app.post("/api/classes/:classId/conduct-records", requireAuthentication, require
       }
     }
 
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [`${request.params.classId}:${student.rows[0].id}:${weekNumber}:${schoolYear.trim()}`]
+    );
+    const duplicate = await client.query(
+      `SELECT 1 FROM conduct_records
+       WHERE class_id = $1 AND student_member_id = $2 AND week_number = $3 AND school_year = $4
+       LIMIT 1`,
+      [request.params.classId, student.rows[0].id, weekNumber, schoolYear.trim()]
+    );
+    if (duplicate.rowCount) {
+      await client.query("ROLLBACK");
+      return response.status(409).json({ error: "Học sinh đã có bản ghi điểm trong tuần và năm học này." });
+    }
+
     const inserted = await client.query(
       `INSERT INTO conduct_records
-        (class_id, student_member_id, recorder_member_id, category_id, title, description, kind, points, record_date, source, evidence_name, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        (class_id, student_member_id, recorder_member_id, category_id, title, description, kind, points, record_date, source, evidence_name, status, week_number, school_year)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id`,
       [
         request.params.classId, student.rows[0].id, request.classAccess.memberId, category.rows[0].id,
         category.rows[0].name, description.trim(), category.rows[0].kind, category.rows[0].points,
-        date, source.trim(), evidenceName.trim(), isGroupManager ? "verified" : "pending"
+        date, source.trim(), evidenceName.trim(), isGroupManager ? "verified" : "pending",
+        weekNumber, schoolYear.trim()
       ]
     );
     await audit(client, {
@@ -2092,12 +2345,21 @@ app.post("/api/classes/:classId/conduct-records", requireAuthentication, require
       action: "conduct.created",
       targetType: "conduct_record",
       targetId: inserted.rows[0].id,
-      details: { studentId, categoryId: category.rows[0].id, kind: category.rows[0].kind, points: category.rows[0].points }
+      details: {
+        studentId, categoryId: category.rows[0].id, kind: category.rows[0].kind,
+        points: category.rows[0].points, weekNumber, schoolYear: schoolYear.trim()
+      }
     });
     await client.query("COMMIT");
-    response.status(201).json({ id: inserted.rows[0].id, status: isGroupManager ? "verified" : "pending" });
+    response.status(201).json({
+      id: inserted.rows[0].id, status: isGroupManager ? "verified" : "pending",
+      weekNumber, schoolYear: schoolYear.trim()
+    });
   } catch (error) {
     await client.query("ROLLBACK");
+    if (error.code === "23505") {
+      return response.status(409).json({ error: "Học sinh đã có bản ghi điểm trong tuần và năm học này." });
+    }
     throw error;
   } finally {
     client.release();

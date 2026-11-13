@@ -916,6 +916,9 @@
         </div>
         <h1>Đăng nhập</h1>
         <p class="subtitle">Đăng nhập để truy cập lớp học và dữ liệu rèn luyện được cấp quyền.</p>
+        <p class="form-help" id="student-credentials-login-notice" role="status" hidden>
+          Mật khẩu tạm của phiên trước không thể khôi phục. Đăng nhập và dùng chức năng đặt lại mật khẩu nếu cần.
+        </p>
         <div class="field">
           <label for="login-username">Tên đăng nhập</label>
           <input id="login-username" type="text" autocomplete="username" maxlength="32" required />
@@ -1030,6 +1033,10 @@
         </header>
 
         <div class="content">
+          <div class="panel" id="student-credentials-lost-notice" role="status" style="margin-bottom:16px;padding:14px;" hidden>
+            <p style="margin:0 0 10px;">Mật khẩu tạm của phiên trước không thể khôi phục. Nếu mất file, hãy dùng chức năng đặt lại mật khẩu.</p>
+            <button class="button" id="student-credentials-reset" type="button" hidden>Đặt lại mật khẩu học sinh</button>
+          </div>
           <section class="page-section" id="page-admin" hidden>
             <div class="page-heading">
               <div>
@@ -1045,6 +1052,24 @@
               <div class="stat-card"><div class="stat-top">Tài khoản vô hiệu hóa</div><div class="stat-number" id="admin-inactive-count">—</div></div>
               <div class="stat-card"><div class="stat-top">Tài khoản mới (7 ngày)</div><div class="stat-number" id="admin-created-week-count">—</div></div>
               <div class="stat-card"><div class="stat-top">Hoạt động bất thường (7 ngày)</div><div class="stat-number" id="admin-abnormal-count">—</div></div>
+            </div>
+            <div class="panel" id="admin-conduct-panel" style="margin-top:16px;padding:18px;">
+              <div class="panel-title">Điểm rèn luyện toàn hệ thống</div>
+              <p class="form-help">Admin và Super Admin có thể lọc và chỉnh sửa bản ghi điểm trong mọi lớp.</p>
+              <form id="admin-conduct-filter-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;margin:14px 0;">
+                <div class="field"><label for="admin-conduct-class">Lớp</label><select id="admin-conduct-class"><option value="">Tất cả lớp</option></select></div>
+                <div class="field"><label for="admin-conduct-week">Tuần (1–53)</label><input id="admin-conduct-week" type="number" min="1" max="53" step="1" /></div>
+                <div class="field"><label for="admin-conduct-year">Năm học</label><input id="admin-conduct-year" maxlength="20" /></div>
+                <div class="field"><label for="admin-conduct-student">Mã học sinh</label><input id="admin-conduct-student" maxlength="32" /></div>
+                <button class="button primary" type="submit">Lọc điểm</button>
+              </form>
+              <p class="form-help" id="admin-conduct-result" role="status"></p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Lớp</th><th>Học sinh</th><th>Mức điểm</th><th>Tuần / năm học</th><th>Ngày</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+                  <tbody id="admin-conduct-rows"></tbody>
+                </table>
+              </div>
             </div>
             <div class="panel" id="admin-account-maintenance" style="margin-top:16px;padding:18px;" hidden>
               <div class="panel-title">Dọn dẹp tài khoản test</div>
@@ -1337,6 +1362,10 @@
                   <option value="pending">Chờ xác minh</option>
                   <option value="verified">Đã xác minh</option>
                 </select>
+                <select class="filter-select" id="incident-class-filter" aria-label="Lọc theo lớp"></select>
+                <input class="filter-select" id="incident-week-filter" type="number" min="1" max="53" step="1" placeholder="Tuần 1–53" aria-label="Lọc theo tuần" />
+                <input class="filter-select" id="incident-year-filter" maxlength="20" placeholder="Năm học" aria-label="Lọc theo năm học" />
+                <select class="filter-select" id="incident-student-filter" aria-label="Lọc theo học sinh"><option value="">Tất cả học sinh</option></select>
               </div>
 
               <div class="table-wrap">
@@ -1348,6 +1377,7 @@
                       <th>Loại</th>
                       <th>Điểm</th>
                       <th>Ngày xảy ra</th>
+                      <th>Tuần / năm học</th>
                       <th>Người ghi nhận</th>
                       <th>Minh chứng</th>
                       <th>Trạng thái</th>
@@ -1614,6 +1644,33 @@
       </main>
     </div>
 
+    <div class="modal-backdrop" id="admin-conduct-edit-modal" role="dialog" aria-modal="true" aria-labelledby="admin-conduct-edit-title">
+      <div class="modal">
+        <div class="modal-head">
+          <div><h2 id="admin-conduct-edit-title">Sửa bản ghi điểm</h2><p id="admin-conduct-edit-class"></p></div>
+          <button class="close-button" id="admin-conduct-edit-close" type="button" aria-label="Đóng">×</button>
+        </div>
+        <form class="form" id="admin-conduct-edit-form" style="padding:18px 20px;">
+          <div class="form-grid">
+            <div class="field"><label for="admin-conduct-edit-student">Học sinh</label><select id="admin-conduct-edit-student" required></select></div>
+            <div class="field"><label for="admin-conduct-edit-category">Mức điểm</label><select id="admin-conduct-edit-category"></select></div>
+            <div class="field"><label for="admin-conduct-edit-week">Tuần (1–53)</label><input id="admin-conduct-edit-week" type="number" min="1" max="53" step="1" required /></div>
+            <div class="field"><label for="admin-conduct-edit-year">Năm học</label><input id="admin-conduct-edit-year" maxlength="20" required /></div>
+            <div class="field"><label for="admin-conduct-edit-date">Ngày xảy ra</label><input id="admin-conduct-edit-date" type="date" required /></div>
+            <div class="field"><label for="admin-conduct-edit-status">Trạng thái</label><select id="admin-conduct-edit-status"><option value="pending">Chờ xác minh</option><option value="verified">Đã xác minh</option></select></div>
+            <div class="field full"><label for="admin-conduct-edit-description">Mô tả</label><textarea id="admin-conduct-edit-description" maxlength="500"></textarea></div>
+            <div class="field"><label for="admin-conduct-edit-source">Nguồn thông tin</label><input id="admin-conduct-edit-source" maxlength="80" /></div>
+            <div class="field"><label for="admin-conduct-edit-evidence">Tên minh chứng</label><input id="admin-conduct-edit-evidence" maxlength="255" /></div>
+          </div>
+          <p class="auth-error" id="admin-conduct-edit-error" role="alert" hidden></p>
+          <div class="form-foot">
+            <button class="button" type="button" id="admin-conduct-edit-cancel">Hủy</button>
+            <button class="button primary" type="submit">Lưu thay đổi</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="modal-backdrop" id="admin-account-status-modal" role="dialog" aria-modal="true" aria-labelledby="admin-account-status-title">
       <div class="modal">
         <div class="modal-head">
@@ -1696,6 +1753,18 @@
             </div>
 
             <div class="field">
+              <label for="incident-week-number">Tuần nhập điểm <span style="color:#e56c70">*</span></label>
+              <select id="incident-week-number" required><option value="">Chọn tuần...</option></select>
+            </div>
+
+            <div class="field">
+              <label for="incident-school-year">Năm học <span style="color:#e56c70">*</span></label>
+              <select id="incident-school-year" required><option value="">Chọn năm học...</option></select>
+            </div>
+
+            <div class="field full"><div class="form-help" id="incident-entry-period" role="status">Chọn tuần và năm học trước khi lưu điểm.</div></div>
+
+            <div class="field">
               <label for="incident-source">Nguồn thông tin</label>
               <input id="incident-source" maxlength="80" placeholder="VD: Giáo viên bộ môn" />
             </div>
@@ -1732,6 +1801,11 @@
         <div class="award-dropzone" id="point-award-dropzone" role="region" aria-label="Khu vực thả mức điểm vào học sinh">
           <strong id="point-award-student-name">Học sinh</strong>
           <span class="form-help">Thả mức điểm vào đây</span>
+        </div>
+        <div class="form-grid" style="padding:0 20px 14px;">
+          <div class="field"><label for="award-week-number">Tuần nhập điểm <span style="color:#e56c70">*</span></label><select id="award-week-number" required><option value="">Chọn tuần...</option></select></div>
+          <div class="field"><label for="award-school-year">Năm học <span style="color:#e56c70">*</span></label><select id="award-school-year" required><option value="">Chọn năm học...</option></select></div>
+          <div class="field full"><div class="form-help" id="award-entry-period" role="status">Chọn tuần và năm học trước khi lưu điểm.</div></div>
         </div>
         <div class="award-category-list" id="point-award-categories"></div>
         <p class="form-help" id="point-award-status" role="status" style="padding:0 20px 18px;"></p>
@@ -1802,18 +1876,21 @@
       let adminAccountPageSize = 25;
       let pendingAccountStatus = null;
       let adminClasses = [];
+      let adminConductRecords = [];
+      let adminConductEditingRecord = null;
       let adminClassPreview = null;
       let adminPermissionTargetId = null;
       let classMemberships = [];
       let activeClass = null;
-      const generatedStudentAccounts = [];
+      let currentCreatedStudentCredentials = [];
       const studentCredentialsSessionMarker = "classtrack-student-credentials-in-memory";
       let lostStudentCredentialsFromPreviousLoad = false;
       try {
         lostStudentCredentialsFromPreviousLoad =
           sessionStorage.getItem(studentCredentialsSessionMarker) === "true";
-        sessionStorage.removeItem(studentCredentialsSessionMarker);
       } catch {}
+      const credentialsLoginNotice = document.getElementById("student-credentials-login-notice");
+      if (credentialsLoginNotice) credentialsLoginNotice.hidden = !lostStudentCredentialsFromPreviousLoad;
       let classLoadVersion = 0;
       let roleRequestLoadVersion = 0;
       let leadershipData = { students: [], groups: [] };
@@ -1843,13 +1920,13 @@
       }
 
       function downloadStudentAccounts() {
-        if (!generatedStudentAccounts.length) {
+        if (!currentCreatedStudentCredentials.length) {
           showToast("Hãy tạo hoặc import tài khoản học sinh trước khi tải file.");
           return;
         }
         const rows = [
           ["username", "full_name", "student_code", "temporary_password"],
-          ...generatedStudentAccounts.map(({ username, full_name, student_code, temporary_password }) =>
+          ...currentCreatedStudentCredentials.map(({ username, full_name, student_code, temporary_password }) =>
             [username, full_name, student_code, temporary_password])
         ];
         const csv = "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
@@ -1861,9 +1938,7 @@
         link.click();
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        if (window.confirm("Đã tải file. Bạn có muốn xóa mật khẩu tạm khỏi bộ nhớ trình duyệt không?")) {
-          clearGeneratedStudentCredentials();
-        }
+        showToast("Mật khẩu tạm chỉ hiển thị trong lần tạo tài khoản này. Nếu mất file, hãy dùng chức năng đặt lại mật khẩu.");
       }
 
       function downloadTeacherAccounts() {
@@ -1882,7 +1957,9 @@
       }
 
       function clearGeneratedAccounts() {
-        clearGeneratedStudentCredentials();
+        clearGeneratedStudentCredentials(
+          currentCreatedStudentCredentials.length > 0 || lostStudentCredentialsFromPreviousLoad
+        );
         generatedTeacherAccounts = [];
         const teacherDownloadButton = document.getElementById("download-teacher-accounts");
         if (teacherDownloadButton) teacherDownloadButton.hidden = true;
@@ -1895,55 +1972,66 @@
         if (status) status.textContent = "";
       }
 
-      function rememberGeneratedStudentAccounts(accounts) {
+      function rememberCreatedStudentCredentials(accounts) {
         if (!Array.isArray(accounts)) {
-          throw new Error("API không trả về danh sách thông tin đăng nhập mới.");
+          throw new Error("Lỗi cấu hình API: phản hồi tạo tài khoản thiếu danh sách credentials.");
         }
-        if (!accounts.length) return generatedStudentAccounts.length;
-        const existing = new Map(generatedStudentAccounts.map((account) => [account.student_code, account]));
+        if (!accounts.length) return currentCreatedStudentCredentials.length;
+        const existing = new Map(currentCreatedStudentCredentials.map((account) => [account.student_code, account]));
         for (const account of accounts) {
           if (!account || typeof account.username !== "string" || !account.username.trim() ||
               typeof account.full_name !== "string" || !account.full_name.trim() ||
               typeof account.student_code !== "string" || !account.student_code.trim() ||
               typeof account.temporary_password !== "string" || !account.temporary_password) {
-            throw new Error("API trả về thông tin đăng nhập không đầy đủ; hãy đặt lại mật khẩu cho tài khoản mới.");
+            throw new Error("Lỗi cấu hình API: thông tin credentials trả về không đầy đủ; hãy đặt lại mật khẩu cho tài khoản mới.");
           }
           existing.set(account.student_code, account);
         }
-        generatedStudentAccounts.splice(0, generatedStudentAccounts.length, ...existing.values());
-        if (generatedStudentAccounts.length) {
+        currentCreatedStudentCredentials = [...existing.values()];
+        if (currentCreatedStudentCredentials.length) {
           try { sessionStorage.setItem(studentCredentialsSessionMarker, "true"); } catch {}
         }
         updateStudentAccountExport();
-        return generatedStudentAccounts.length;
+        return currentCreatedStudentCredentials.length;
       }
 
-      function clearGeneratedStudentCredentials() {
-        generatedStudentAccounts.length = 0;
-        try { sessionStorage.removeItem(studentCredentialsSessionMarker); } catch {}
+      function clearGeneratedStudentCredentials(preserveLossNotice = false) {
+        currentCreatedStudentCredentials = [];
+        lostStudentCredentialsFromPreviousLoad = preserveLossNotice;
+        try {
+          if (preserveLossNotice) sessionStorage.setItem(studentCredentialsSessionMarker, "true");
+          else sessionStorage.removeItem(studentCredentialsSessionMarker);
+        } catch {}
+        const loginNotice = document.getElementById("student-credentials-login-notice");
+        if (loginNotice) loginNotice.hidden = !preserveLossNotice;
         updateStudentAccountExport();
       }
 
       function updateStudentAccountExport() {
-        const hasCredentials = generatedStudentAccounts.length > 0;
+        const hasCredentials = currentCreatedStudentCredentials.length > 0;
         const exportButton = document.getElementById("export-students");
         if (exportButton) exportButton.disabled = !hasCredentials;
         const exportStatus = document.getElementById("student-account-export-status");
         if (exportStatus) exportStatus.textContent = hasCredentials
-          ? `${generatedStudentAccounts.length} tài khoản mới có mật khẩu tạm trong bộ nhớ phiên này.`
+          ? `${currentCreatedStudentCredentials.length} tài khoản mới có mật khẩu tạm trong bộ nhớ phiên này.`
           : "Hãy tạo hoặc import tài khoản học sinh trước khi tải file.";
         const downloadButton = document.getElementById("download-student-accounts");
         if (downloadButton) {
           downloadButton.hidden = !hasCredentials;
-          downloadButton.disabled = !hasCredentials;
+          downloadButton.disabled = currentCreatedStudentCredentials.length === 0;
           downloadButton.textContent = hasCredentials
-            ? `Tải tài khoản (${generatedStudentAccounts.length} học sinh)`
+            ? `Tải tài khoản (${currentCreatedStudentCredentials.length} học sinh)`
             : "Tải CSV tài khoản";
         }
         const status = document.getElementById("bulk-student-status");
         if (status) status.textContent = hasCredentials
-          ? `Tệp sẽ gồm ${generatedStudentAccounts.length} tài khoản mới trong phiên hiện tại.`
+          ? `Tệp sẽ gồm ${currentCreatedStudentCredentials.length} tài khoản mới trong phiên hiện tại.`
           : "Hãy tạo hoặc import tài khoản học sinh trước khi tải file.";
+        const lostNotice = document.getElementById("student-credentials-lost-notice");
+        if (lostNotice) lostNotice.hidden = !lostStudentCredentialsFromPreviousLoad || hasCredentials;
+        const resetButton = document.getElementById("student-credentials-reset");
+        if (resetButton) resetButton.hidden =
+          !lostStudentCredentialsFromPreviousLoad || hasCredentials || !hasAdminPermission("accounts:manage");
       }
 
       const byId = (id) => students.find((student) => student.id === id);
@@ -2075,6 +2163,79 @@
         error.hidden = !message;
       }
 
+      function scorePeriodStorageKey() {
+        return activeClass ? `classtrack-score-period-${activeClass.id}` : "";
+      }
+
+      function readScorePeriod() {
+        try {
+          const value = JSON.parse(localStorage.getItem(scorePeriodStorageKey()) || "{}");
+          return {
+            weekNumber: typeof value.weekNumber === "number" && value.weekNumber >= 1 && value.weekNumber <= 53 ? String(value.weekNumber) : "",
+            schoolYear: typeof value.schoolYear === "string" ? value.schoolYear : ""
+          };
+        } catch {
+          return { weekNumber: "", schoolYear: "" };
+        }
+      }
+
+      function renderScorePeriodInputs() {
+        if (!activeClass) return;
+        const stored = readScorePeriod();
+        const weekOptions = `<option value="">Chọn tuần...</option>` +
+          Array.from({ length: 53 }, (_value, index) => `<option value="${index + 1}">Tuần ${index + 1}</option>`).join("");
+        const schoolYears = [...new Set([
+          activeClass.academicYear,
+          stored.schoolYear,
+          ...incidents.map((record) => record.schoolYear)
+        ].filter((year) => typeof year === "string" && year.trim()))];
+        const yearOptions = `<option value="">Chọn năm học...</option>` +
+          schoolYears.map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join("");
+        for (const id of ["incident-week-number", "award-week-number"]) {
+          const select = document.getElementById(id);
+          select.innerHTML = weekOptions;
+          select.value = stored.weekNumber;
+        }
+        for (const id of ["incident-school-year", "award-school-year"]) {
+          const select = document.getElementById(id);
+          select.innerHTML = yearOptions;
+          select.value = stored.schoolYear;
+        }
+        const periodLabel = stored.weekNumber && stored.schoolYear
+          ? `Đang nhập điểm: Tuần ${stored.weekNumber} · Năm học ${stored.schoolYear}`
+          : "Bắt buộc chọn tuần và năm học trước khi lưu điểm.";
+        document.getElementById("incident-entry-period").textContent = periodLabel;
+        document.getElementById("award-entry-period").textContent = periodLabel;
+      }
+
+      function updateScorePeriod(sourceId) {
+        const weekNumber = document.getElementById(sourceId === "award-week-number" || sourceId === "award-school-year"
+          ? "award-week-number" : "incident-week-number").value;
+        const schoolYear = document.getElementById(sourceId === "award-week-number" || sourceId === "award-school-year"
+          ? "award-school-year" : "incident-school-year").value;
+        try {
+          if (weekNumber || schoolYear) {
+            localStorage.setItem(scorePeriodStorageKey(), JSON.stringify({
+              weekNumber: weekNumber ? Number(weekNumber) : null,
+              schoolYear
+            }));
+          } else {
+            localStorage.removeItem(scorePeriodStorageKey());
+          }
+        } catch {}
+        for (const id of ["incident-week-number", "award-week-number"]) {
+          document.getElementById(id).value = weekNumber;
+        }
+        for (const id of ["incident-school-year", "award-school-year"]) {
+          document.getElementById(id).value = schoolYear;
+        }
+        const periodLabel = weekNumber && schoolYear
+          ? `Đang nhập điểm: Tuần ${weekNumber} · Năm học ${schoolYear}`
+          : "Bắt buộc chọn tuần và năm học trước khi lưu điểm.";
+        document.getElementById("incident-entry-period").textContent = periodLabel;
+        document.getElementById("award-entry-period").textContent = periodLabel;
+      }
+
       async function loadClassData() {
         const loadVersion = ++classLoadVersion;
         roleRequestLoadVersion++;
@@ -2122,6 +2283,7 @@
         renderTeacherStudentList();
         incidents = Array.isArray(incidentData?.incidents) ? incidentData.incidents : [];
         conductCategories = Array.isArray(categoryData?.categories) ? categoryData.categories : [];
+        renderScorePeriodInputs();
         forumPosts = Array.isArray(forumData?.posts) ? forumData.posts : [];
         forumGroups = Array.isArray(forumGroupData?.groups) ? forumGroupData.groups : [];
         weeklyScoreState = {
@@ -2166,9 +2328,10 @@
       async function enterApp(session) {
         currentUser = session.user;
         if (lostStudentCredentialsFromPreviousLoad) {
-          showToast("Mật khẩu tạm của phiên trước không thể khôi phục.");
-          lostStudentCredentialsFromPreviousLoad = false;
+          const loginNotice = document.getElementById("student-credentials-login-notice");
+          if (loginNotice) loginNotice.hidden = true;
         }
+        updateStudentAccountExport();
         document.getElementById("profile-password-error").hidden = true;
         classMemberships = Array.isArray(session?.classes) ? session.classes : [];
         students = [];
@@ -2222,7 +2385,10 @@
           document.getElementById("admin-audit-panel").hidden = !hasAdminPermission("audit:view");
           document.getElementById("teacher-account-panel").hidden = !hasAdminPermission("teachers:manage");
           document.getElementById("admin-create-panel").hidden = !hasAdminPermission("admins:manage");
-          try { await loadAdminClasses(); } catch (error) { showToast(`Không thể tải danh sách lớp: ${error.message}`); }
+          try {
+            await loadAdminClasses();
+            await loadAdminConductRecords();
+          } catch (error) { showToast(`Không thể tải dữ liệu điểm: ${error.message}`); }
           if (hasAdminPermission("reports:view")) await loadAdminOverview();
           if (hasAdminPermission("accounts:manage")) await loadAdminAccounts();
           if (hasAdminPermission("audit:view")) await loadAdminAudit();
@@ -2283,6 +2449,12 @@
           `<option value="${escapeHtml(classroom.id)}">${escapeHtml(classroom.class_code || classroom.class_name)}${classroom.is_active ? "" : " · Đã vô hiệu hóa"}</option>`
         ).join("");
         classFilter.value = adminClasses.some((classroom) => classroom.id === selectedClassId) ? selectedClassId : "";
+        const conductClassFilter = document.getElementById("admin-conduct-class");
+        const selectedConductClassId = conductClassFilter.value;
+        conductClassFilter.innerHTML = `<option value="">Tất cả lớp</option>` + adminClasses.map((classroom) =>
+          `<option value="${escapeHtml(classroom.id)}">${escapeHtml(classroom.class_code || classroom.class_name)}</option>`
+        ).join("");
+        conductClassFilter.value = adminClasses.some((classroom) => classroom.id === selectedConductClassId) ? selectedConductClassId : "";
         document.getElementById("admin-class-rows").innerHTML = adminClasses.length
           ? adminClasses.map((classroom) => `<tr>
               <td>${escapeHtml(classroom.class_code || "Chưa có mã")}</td>
@@ -2297,6 +2469,63 @@
               </div></td>
             </tr>`).join("")
           : `<tr><td colspan="6">Chưa có lớp học.</td></tr>`;
+      }
+
+      async function loadAdminConductRecords() {
+        const query = new URLSearchParams();
+        const values = {
+          classId: document.getElementById("admin-conduct-class").value,
+          weekNumber: document.getElementById("admin-conduct-week").value,
+          schoolYear: document.getElementById("admin-conduct-year").value.trim(),
+          studentId: document.getElementById("admin-conduct-student").value.trim()
+        };
+        Object.entries(values).forEach(([key, value]) => { if (value) query.set(key, value); });
+        const result = await apiRequest(`/api/admin/conduct-records?${query}`);
+        adminConductRecords = result.records || [];
+        document.getElementById("admin-conduct-result").textContent =
+          `Hiển thị ${adminConductRecords.length} bản ghi.`;
+        document.getElementById("admin-conduct-rows").innerHTML = adminConductRecords.length
+          ? adminConductRecords.map((record) => `<tr>
+              <td>${escapeHtml(record.className)}</td>
+              <td>${escapeHtml(record.studentName)}<br><small>${escapeHtml(record.studentId)}</small></td>
+              <td>${escapeHtml(record.title)}<br><span class="points ${record.kind === "positive" ? "positive" : "negative"}">${record.kind === "positive" ? "+" : "−"}${Number(record.points)}</span></td>
+              <td>${Number(record.weekNumber)} · ${escapeHtml(record.schoolYear)}</td>
+              <td>${formatDate(record.date)}</td>
+              <td><span class="badge ${record.status}">${record.status === "verified" ? "Đã xác minh" : "Chờ xác minh"}</span></td>
+              <td><button class="button" type="button" data-admin-conduct-edit="${escapeHtml(record.id)}">Sửa</button></td>
+            </tr>`).join("")
+          : `<tr><td colspan="7" class="empty-state">Không tìm thấy bản ghi phù hợp.</td></tr>`;
+      }
+
+      async function openAdminConductEditor(record) {
+        adminConductEditingRecord = record;
+        const options = await apiRequest(`/api/admin/classes/${encodeURIComponent(record.classId)}/conduct-options`);
+        document.getElementById("admin-conduct-edit-class").textContent =
+          `${record.className} · ${record.studentId} · ${record.weekNumber} / ${record.schoolYear}`;
+        document.getElementById("admin-conduct-edit-student").innerHTML = options.students.map((student) =>
+          `<option value="${escapeHtml(student.id)}">${escapeHtml(student.name)} · ${escapeHtml(student.id)}</option>`
+        ).join("");
+        document.getElementById("admin-conduct-edit-category").innerHTML =
+          `<option value="">Giữ nguyên mức điểm</option>` + options.categories.map((category) =>
+          `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)} · ${category.kind === "positive" ? "+" : "−"}${Number(category.points)}</option>`
+        ).join("");
+        document.getElementById("admin-conduct-edit-student").value = record.studentId;
+        document.getElementById("admin-conduct-edit-category").value = record.categoryId;
+        document.getElementById("admin-conduct-edit-week").value = record.weekNumber;
+        document.getElementById("admin-conduct-edit-year").value = record.schoolYear;
+        document.getElementById("admin-conduct-edit-date").value = record.date;
+        document.getElementById("admin-conduct-edit-status").value = record.status;
+        document.getElementById("admin-conduct-edit-description").value = record.description || "";
+        document.getElementById("admin-conduct-edit-source").value = record.source || "";
+        document.getElementById("admin-conduct-edit-evidence").value = record.evidenceName || "";
+        document.getElementById("admin-conduct-edit-error").hidden = true;
+        document.getElementById("admin-conduct-edit-modal").classList.add("open");
+      }
+
+      function closeAdminConductEditor() {
+        adminConductEditingRecord = null;
+        document.getElementById("admin-conduct-edit-modal").classList.remove("open");
+        document.getElementById("admin-conduct-edit-form").reset();
       }
 
       async function loadAdminClassDeletionPreview(classId) {
@@ -2442,6 +2671,11 @@
         });
         document.getElementById("student-class-filter").innerHTML =
           `<option value="${escapeHtml(activeClass.id)}">Lớp ${escapeHtml(activeClass.name)}</option>`;
+        const incidentClassFilter = document.getElementById("incident-class-filter");
+        incidentClassFilter.innerHTML = classMemberships.map((classroom) =>
+          `<option value="${escapeHtml(classroom.id)}">${escapeHtml(classroom.name)}</option>`
+        ).join("");
+        incidentClassFilter.value = activeClass.id;
         document.querySelector(".school-year").textContent = `Năm học ${activeClass.academicYear}`;
         updateStudentAccountExport();
 
@@ -2638,7 +2872,7 @@
           const verification = activeClass?.permissions.includes("conduct:verify")
             ? `<button class="badge ${event.status}" data-verify="${escapeHtml(event.id)}" title="Cập nhật trạng thái" style="cursor:pointer">${status}</button>`
             : `<span class="badge ${event.status}">${status}</span>`;
-          return `<tr><td>${studentCell(student)}</td><td><div class="event-title" title="${escapeHtml(event.description || event.title)}">${escapeHtml(event.title)}</div><div style="font-size:9px;color:#9aa5b6;margin-top:3px">${escapeHtml(event.source || "—")}</div></td><td><span class="badge ${positive ? "positive" : "negative"}">${positive ? "Điểm cộng" : "Điểm trừ"}</span></td><td><span class="points ${positive ? "positive" : "negative"}">${points}</span></td><td>${formatDate(event.date)}</td><td>${escapeHtml(event.recorder || "—")}</td><td>${event.evidence ? `<span title="${escapeHtml(event.evidence)}">📎 ${escapeHtml(event.evidence)}</span>` : "—"}</td><td>${verification}</td></tr>`;
+          return `<tr><td>${studentCell(student)}</td><td><div class="event-title" title="${escapeHtml(event.description || event.title)}">${escapeHtml(event.title)}</div><div style="font-size:9px;color:#9aa5b6;margin-top:3px">${escapeHtml(event.source || "—")}</div></td><td><span class="badge ${positive ? "positive" : "negative"}">${positive ? "Điểm cộng" : "Điểm trừ"}</span></td><td><span class="points ${positive ? "positive" : "negative"}">${points}</span></td><td>${formatDate(event.date)}</td><td>Tuần ${Number(event.weekNumber)} · ${escapeHtml(event.schoolYear || "")}</td><td>${escapeHtml(event.recorder || "—")}</td><td>${event.evidence ? `<span title="${escapeHtml(event.evidence)}">📎 ${escapeHtml(event.evidence)}</span>` : "—"}</td><td>${verification}</td></tr>`;
         }
 
         return `<tr><td>${studentCell(student)}</td><td><div class="event-title">${escapeHtml(event.title)}</div></td><td><span class="points ${positive ? "positive" : "negative"}">${points}</span></td><td>${formatDate(event.date)}</td><td><span class="badge ${event.status}">${status}</span></td></tr>`;
@@ -2707,14 +2941,22 @@
         const query = document.getElementById("incident-search").value.trim().toLocaleLowerCase("vi");
         const kind = document.getElementById("type-filter").value;
         const status = document.getElementById("status-filter").value;
+        const weekNumber = document.getElementById("incident-week-filter").value;
+        const schoolYear = document.getElementById("incident-year-filter").value.trim();
+        const studentId = document.getElementById("incident-student-filter").value;
 
         const filtered = [...incidents].filter((event) => {
           const student = byId(event.studentId);
           const text = `${event.title} ${event.description || ""} ${student ? student.name : ""} ${student ? student.id : ""}`.toLocaleLowerCase("vi");
-          return (!query || text.includes(query)) && (kind === "all" || event.kind === kind) && (status === "all" || event.status === status);
+          return (!query || text.includes(query)) &&
+            (kind === "all" || event.kind === kind) &&
+            (status === "all" || event.status === status) &&
+            (!weekNumber || Number(event.weekNumber) === Number(weekNumber)) &&
+            (!schoolYear || event.schoolYear === schoolYear) &&
+            (!studentId || event.studentId === studentId);
         }).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 
-        document.getElementById("incident-table").innerHTML = filtered.length ? filtered.map((event) => incidentRow(event, true)).join("") : `<tr><td colspan="8" class="empty-state">Không tìm thấy sự việc phù hợp.</td></tr>`;
+        document.getElementById("incident-table").innerHTML = filtered.length ? filtered.map((event) => incidentRow(event, true)).join("") : `<tr><td colspan="9" class="empty-state">Không tìm thấy sự việc phù hợp.</td></tr>`;
       }
 
       function studentTotals(studentId) {
@@ -2805,6 +3047,11 @@
         renderConductCategories();
         const select = document.getElementById("incident-students");
         select.innerHTML = `<option value="">Chọn học sinh...</option>` + students.map((student) => `<option value="${escapeHtml(student.id)}">${escapeHtml(student.name)} · ${escapeHtml(student.id)}</option>`).join("");
+        const studentFilter = document.getElementById("incident-student-filter");
+        const selectedStudentId = studentFilter.value;
+        studentFilter.innerHTML = `<option value="">Tất cả học sinh</option>` +
+          students.map((student) => `<option value="${escapeHtml(student.id)}">${escapeHtml(student.name)} · ${escapeHtml(student.id)}</option>`).join("");
+        studentFilter.value = students.some((student) => student.id === selectedStudentId) ? selectedStudentId : "";
         const categorySelect = document.getElementById("incident-category");
         categorySelect.innerHTML = conductCategories.length
           ? `<option value="">Chọn mức điểm...</option>` + conductCategories.map((category) => {
@@ -2927,6 +3174,12 @@
         const student = byId(pointAwardStudentId);
         const category = conductCategories.find((item) => item.id === categoryId);
         if (!student || !category || !activeClass || pointAwardSaving) return;
+        const weekNumber = Number(document.getElementById("award-week-number").value);
+        const schoolYear = document.getElementById("award-school-year").value;
+        if (!Number.isInteger(weekNumber) || weekNumber < 1 || weekNumber > 53 || !schoolYear) {
+          document.getElementById("point-award-status").textContent = "Hãy chọn tuần và năm học trước khi ghi nhận điểm.";
+          return;
+        }
         pointAwardSaving = true;
         document.getElementById("point-award-status").textContent = "Đang ghi nhận điểm…";
         renderPointAwardCategories();
@@ -2938,7 +3191,9 @@
               categoryId: category.id,
               description: "Ghi nhận theo mức điểm cố định của lớp.",
               date: dateInputValue(new Date()),
-              source: "Tổ trưởng/nhóm trưởng"
+              source: "Tổ trưởng/nhóm trưởng",
+              weekNumber,
+              schoolYear
             }
           });
           closePointAwardModal();
@@ -3376,6 +3631,12 @@
 
       document.getElementById("incident-form").addEventListener("submit", async (event) => {
         event.preventDefault();
+        const weekNumber = Number(document.getElementById("incident-week-number").value);
+        const schoolYear = document.getElementById("incident-school-year").value;
+        if (!Number.isInteger(weekNumber) || weekNumber < 1 || weekNumber > 53 || !schoolYear) {
+          showToast("Hãy chọn tuần và năm học trước khi lưu điểm.");
+          return;
+        }
         const file = document.getElementById("incident-evidence").files[0];
         if (file && file.size > 10 * 1024 * 1024) {
           showToast("Tệp minh chứng vượt quá giới hạn 10 MB.");
@@ -3391,10 +3652,13 @@
               description: document.getElementById("incident-description").value.trim(),
               date: document.getElementById("incident-date").value,
               source: document.getElementById("incident-source").value.trim(),
-              evidenceName: file ? file.name : ""
+              evidenceName: file ? file.name : "",
+              weekNumber,
+              schoolYear
             }
           });
           event.target.reset();
+          renderScorePeriodInputs();
           closeIncidentModal();
           await loadClassData();
           showToast(result.status === "verified"
@@ -3408,6 +3672,18 @@
       document.getElementById("incident-search").addEventListener("input", renderIncidents);
       document.getElementById("type-filter").addEventListener("change", renderIncidents);
       document.getElementById("status-filter").addEventListener("change", renderIncidents);
+      document.getElementById("incident-week-filter").addEventListener("input", renderIncidents);
+      document.getElementById("incident-year-filter").addEventListener("input", renderIncidents);
+      document.getElementById("incident-student-filter").addEventListener("change", renderIncidents);
+      document.getElementById("incident-class-filter").addEventListener("change", (event) => {
+        const classSwitcher = document.getElementById("class-switcher");
+        if (classSwitcher.value === event.target.value) return;
+        classSwitcher.value = event.target.value;
+        classSwitcher.dispatchEvent(new Event("change"));
+      });
+      for (const id of ["incident-week-number", "incident-school-year", "award-week-number", "award-school-year"]) {
+        document.getElementById(id).addEventListener("change", () => updateScorePeriod(id));
+      }
       document.getElementById("student-search").addEventListener("input", renderStudents);
 
       document.getElementById("student-import-form").addEventListener("submit", async (event) => {
@@ -3442,7 +3718,7 @@
             body: formData,
             timeoutMs: 300000
           });
-          rememberGeneratedStudentAccounts(report.credentials);
+          rememberCreatedStudentCredentials(report.credentials);
           renderStudentImportReport(report);
           event.target.reset();
           try {
@@ -3488,9 +3764,9 @@
             timeoutMs: 120000
           });
           if (!Array.isArray(result?.credentials) || result.credentials.length !== 1) {
-            throw new Error("API không trả về đủ thông tin đăng nhập của tài khoản vừa tạo.");
+            throw new Error("Lỗi cấu hình API: phản hồi tạo tài khoản thiếu credentials hợp lệ.");
           }
-          rememberGeneratedStudentAccounts(result.credentials);
+          rememberCreatedStudentCredentials(result.credentials);
           event.target.reset();
           showToast("Đã tạo tài khoản học sinh. Hãy tải thông tin đăng nhập để lưu mật khẩu.");
           try {
@@ -3531,9 +3807,9 @@
             body: { students: rows }
           });
           if (!Array.isArray(result?.credentials) || result.credentials.length !== rows.length) {
-            throw new Error("API không trả về đủ thông tin đăng nhập của các tài khoản vừa tạo.");
+            throw new Error("Lỗi cấu hình API: phản hồi tạo tài khoản thiếu credentials hợp lệ.");
           }
-          const generatedCount = rememberGeneratedStudentAccounts(result.credentials);
+          const generatedCount = rememberCreatedStudentCredentials(result.credentials);
           event.target.reset();
           status.textContent = `Đã tạo ${result.credentials.length} tài khoản mới; tệp hiện có ${generatedCount} tài khoản trong phiên này.`;
           try {
@@ -3549,6 +3825,18 @@
         }
       });
       document.getElementById("download-student-accounts").addEventListener("click", downloadStudentAccounts);
+      document.getElementById("student-credentials-reset").addEventListener("click", async () => {
+        if (!hasAdminPermission("accounts:manage")) return;
+        setPage("admin", "Quản trị tài khoản");
+        document.getElementById("admin-account-type").value = "student";
+        adminAccountPage = 1;
+        try {
+          await loadAdminAccounts();
+          document.getElementById("admin-account-management").scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (error) {
+          showToast(error.message);
+        }
+      });
 
       document.getElementById("admin-account-filter-form").addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -3601,6 +3889,54 @@
       });
       document.getElementById("admin-classes-refresh").addEventListener("click", async () => {
         try { await loadAdminClasses(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-conduct-filter-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try { await loadAdminConductRecords(); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-conduct-rows").addEventListener("click", async (event) => {
+        const button = event.target.closest("[data-admin-conduct-edit]");
+        if (!button) return;
+        const record = adminConductRecords.find((item) => item.id === button.dataset.adminConductEdit);
+        if (!record) return;
+        try { await openAdminConductEditor(record); } catch (error) { showToast(error.message); }
+      });
+      document.getElementById("admin-conduct-edit-close").addEventListener("click", closeAdminConductEditor);
+      document.getElementById("admin-conduct-edit-cancel").addEventListener("click", closeAdminConductEditor);
+      document.getElementById("admin-conduct-edit-modal").addEventListener("click", (event) => {
+        if (event.target.id === "admin-conduct-edit-modal") closeAdminConductEditor();
+      });
+      document.getElementById("admin-conduct-edit-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!adminConductEditingRecord) return;
+        const errorBox = document.getElementById("admin-conduct-edit-error");
+        errorBox.hidden = true;
+        const submit = event.currentTarget.querySelector('button[type="submit"]');
+        submit.disabled = true;
+        try {
+          await apiRequest(`/api/admin/conduct-records/${encodeURIComponent(adminConductEditingRecord.id)}`, {
+            method: "PUT",
+            body: {
+              studentId: document.getElementById("admin-conduct-edit-student").value,
+              categoryId: document.getElementById("admin-conduct-edit-category").value || null,
+              weekNumber: Number(document.getElementById("admin-conduct-edit-week").value),
+              schoolYear: document.getElementById("admin-conduct-edit-year").value.trim(),
+              date: document.getElementById("admin-conduct-edit-date").value,
+              status: document.getElementById("admin-conduct-edit-status").value,
+              description: document.getElementById("admin-conduct-edit-description").value.trim(),
+              source: document.getElementById("admin-conduct-edit-source").value.trim(),
+              evidenceName: document.getElementById("admin-conduct-edit-evidence").value.trim()
+            }
+          });
+          closeAdminConductEditor();
+          await loadAdminConductRecords();
+          showToast("Đã cập nhật bản ghi điểm.");
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+        } finally {
+          submit.disabled = false;
+        }
       });
       document.getElementById("admin-class-rows").addEventListener("click", async (event) => {
         const previewButton = event.target.closest("[data-class-preview]");

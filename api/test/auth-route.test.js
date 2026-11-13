@@ -159,8 +159,8 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /apiRequest\("\/api\/teacher\/students\/import"/);
     assert.match(html, /credentials:\s*"include"/);
     assert.match(html, /headers:\s*options\.body && !isFormData \? \{\s*"Content-Type":\s*"application\/json"\s*\} : undefined/);
-    assert.match(html, /rememberGeneratedStudentAccounts\(report\.credentials\)/);
-    assert.match(html, /rememberGeneratedStudentAccounts\(result\.credentials\)/);
+    assert.match(html, /rememberCreatedStudentCredentials\(report\.credentials\)/);
+    assert.match(html, /rememberCreatedStudentCredentials\(result\.credentials\)/);
     assert.match(html, /result\.credentials\.length !== 1/);
     assert.match(html, /result\.credentials\.length !== rows\.length/);
     assert.match(html, /function downloadStudentAccounts\(\)/);
@@ -173,9 +173,14 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /temporary_password/);
     assert.match(html, /Hãy tạo hoặc import tài khoản học sinh trước khi tải file\./);
     assert.match(html, /Mật khẩu tạm của phiên trước không thể khôi phục\./);
-    assert.match(html, /Bạn có muốn xóa mật khẩu tạm khỏi bộ nhớ trình duyệt không\?/);
+    assert.match(html, /Mật khẩu tạm chỉ hiển thị trong lần tạo tài khoản này\. Nếu mất file, hãy dùng chức năng đặt lại mật khẩu\./);
+    assert.doesNotMatch(html, /Bạn có muốn xóa mật khẩu tạm khỏi bộ nhớ trình duyệt không\?/);
     assert.match(html, /sessionStorage\.setItem\(studentCredentialsSessionMarker, "true"\)/);
-    assert.doesNotMatch(html, /sessionStorage\.setItem\([^,]+,\s*JSON\.stringify\(generatedStudentAccounts/);
+    assert.match(html, /let currentCreatedStudentCredentials = \[\]/);
+    assert.doesNotMatch(html, /sessionStorage\.setItem\([^,]+,\s*JSON\.stringify\(currentCreatedStudentCredentials/);
+    assert.match(html, /currentCreatedStudentCredentials\.length === 0/);
+    assert.match(html, /id="student-credentials-reset"/);
+    assert.match(html, /Lỗi cấu hình API: phản hồi tạo tài khoản thiếu credentials hợp lệ/);
     assert.match(html, /classroom\.class_name\} · ID: \$\{classroom\.id\}/);
     assert.match(html, /\/api\/admin\/classes\/\$\{encodeURIComponent\(classId\)\}\/deletion-preview/);
     assert.match(html, /counts\.students_to_delete/);
@@ -212,7 +217,7 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     const createFormStart = html.indexOf('document.getElementById("student-account-form").addEventListener("submit"');
     const bulkFormStart = html.indexOf('document.getElementById("bulk-student-form").addEventListener("submit"', createFormStart);
     const createFormHandler = html.slice(createFormStart, bulkFormStart);
-    assert.ok(createFormHandler.indexOf("rememberGeneratedStudentAccounts(result.credentials)") <
+    assert.ok(createFormHandler.indexOf("rememberCreatedStudentCredentials(result.credentials)") <
       createFormHandler.indexOf("await loadClassData()"));
     assert.match(createFormHandler, /Đã tạo tài khoản, nhưng chưa thể làm mới danh sách/);
   }
@@ -225,17 +230,23 @@ test("teacher student credentials stay in memory and download from the stored re
       "export-students": { disabled: true },
       "student-account-export-status": { textContent: "" },
       "download-student-accounts": { hidden: true, disabled: true, textContent: "" },
-      "bulk-student-status": { textContent: "" }
+      "bulk-student-status": { textContent: "" },
+      "student-credentials-lost-notice": { hidden: true },
+      "student-credentials-reset": { hidden: true },
+      "student-credentials-login-notice": { hidden: true }
     };
     const storedValues = new Map();
+    const toastMessages = [];
     const link = {
       click() { this.clicked = true; },
       remove() { this.removed = true; }
     };
     let downloadedBlob;
     const context = {
-      generatedStudentAccounts: [],
+      currentCreatedStudentCredentials: [],
+      lostStudentCredentialsFromPreviousLoad: false,
       studentCredentialsSessionMarker: "credentials-marker",
+      hasAdminPermission: () => false,
       sessionStorage: {
         setItem(key, value) { storedValues.set(key, value); },
         removeItem(key) { storedValues.delete(key); }
@@ -250,17 +261,24 @@ test("teacher student credentials stay in memory and download from the stored re
         revokeObjectURL() {}
       },
       Blob,
-      window: { setTimeout() {}, confirm: () => false },
-      showToast() {}
+      window: { setTimeout() {} },
+      showToast(message) { toastMessages.push(message); }
     };
 
     vm.runInNewContext([
       frontendFunction(html, "csvCell"),
-      frontendFunction(html, "rememberGeneratedStudentAccounts"),
+      frontendFunction(html, "rememberCreatedStudentCredentials"),
       frontendFunction(html, "updateStudentAccountExport"),
       frontendFunction(html, "downloadStudentAccounts")
     ].join("\n"), context);
 
+    vm.runInNewContext("updateStudentAccountExport()", context);
+    assert.equal(elements["export-students"].disabled, true);
+    assert.equal(elements["download-student-accounts"].disabled, true);
+    assert.throws(
+      () => vm.runInNewContext("rememberCreatedStudentCredentials(undefined)", context),
+      /Lỗi cấu hình API/
+    );
     const credentials = [{
       username: "hs100",
       full_name: "Nguyễn Văn An",
@@ -268,7 +286,7 @@ test("teacher student credentials stay in memory and download from the stored re
       temporary_password: "one-time-password"
     }];
     assert.equal(
-      vm.runInNewContext(`rememberGeneratedStudentAccounts(${JSON.stringify(credentials)})`, context),
+      vm.runInNewContext(`rememberCreatedStudentCredentials(${JSON.stringify(credentials)})`, context),
       1
     );
     assert.equal(elements["export-students"].disabled, false);
@@ -287,7 +305,8 @@ test("teacher student credentials stay in memory and download from the stored re
     assert.equal(link.download, "tai-khoan-hoc-sinh.csv");
     assert.match(await downloadedBlob.text(), /hs100/);
     assert.match(await downloadedBlob.text(), /one-time-password/);
-    assert.equal(context.generatedStudentAccounts.length, 1);
+    assert.equal(context.currentCreatedStudentCredentials.length, 1);
+    assert.match(toastMessages.at(-1), /Mật khẩu tạm chỉ hiển thị trong lần tạo tài khoản này/);
   }
 });
 
@@ -783,11 +802,19 @@ test("POST /api/classes/:classId/students creates a class student from the front
       assert.equal(response.status, 201);
       const body = await response.json();
       const { credentials } = body;
-      assert.deepEqual(Object.keys(body), ["credentials"]);
+      assert.deepEqual(Object.keys(body), [
+        "username", "full_name", "student_code", "temporary_password", "credentials"
+      ]);
       assert.deepEqual(Object.keys(credentials[0]), [
         "username", "full_name", "student_code", "temporary_password"
       ]);
       const account = credentials[0];
+      assert.deepEqual({
+        username: body.username,
+        full_name: body.full_name,
+        student_code: body.student_code,
+        temporary_password: body.temporary_password
+      }, account);
       const [username, passwordHash, fullName, studentNumber] = userInserts[0];
       assert.equal(account.student_code, "HS042");
       assert.equal(account.username, "hs042");

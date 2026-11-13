@@ -27,6 +27,13 @@ const incidents = [
   ["EVT07", "HS001", "Giữ gìn vệ sinh lớp học", "Chủ động nhặt rác và sắp xếp bàn ghế.", "positive", 1, "2026-10-12", "GVCN", "verified", ""]
 ];
 
+function isoWeekNumber(value) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+}
+
 try {
   await client.query("BEGIN");
   const passwordHash = await bcrypt.hash(password, 12);
@@ -127,10 +134,13 @@ try {
   for (const [key, studentNumber, title, description, kind, points, recordDate, source, status, evidenceName] of incidents) {
     await client.query(
       `INSERT INTO conduct_records
-        (class_id, student_member_id, recorder_member_id, title, description, kind, points, record_date, source, status, idempotency_key, evidence_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        (class_id, student_member_id, recorder_member_id, title, description, kind, points, record_date, source, status, idempotency_key, evidence_name, week_number, school_year)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (class_id, idempotency_key) DO NOTHING`,
-      [classId, memberIds.get(studentNumber), teacherMember.rows[0].id, title, description, kind, points, recordDate, source, status, key, evidenceName]
+      [
+        classId, memberIds.get(studentNumber), teacherMember.rows[0].id, title, description,
+        kind, points, recordDate, source, status, key, evidenceName, isoWeekNumber(recordDate), "2025-2026"
+      ]
     );
   }
 
