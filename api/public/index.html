@@ -1451,6 +1451,7 @@
                     <p class="auth-error" id="bulk-student-error" role="alert" hidden></p>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                       <button class="button primary" id="bulk-student-submit" type="submit">Tạo tài khoản và mật khẩu</button>
+                      <button class="button" id="bulk-student-new-batch" type="button" hidden>Đã kiểm tra danh sách, bắt đầu lô mới</button>
                       <button class="button" id="download-student-accounts" type="button" hidden disabled>Tải CSV tài khoản</button>
                       <span id="bulk-student-status" class="form-help" role="status"></span>
                     </div>
@@ -2083,7 +2084,16 @@
         let networkError;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+          let timedOut = false;
+          const abortFromCaller = () => controller.abort();
+          if (options.signal) {
+            if (options.signal.aborted) controller.abort();
+            else options.signal.addEventListener("abort", abortFromCaller, { once: true });
+          }
+          const timeout = window.setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeoutMs);
           try {
             if (window.location.protocol !== "file:" && navigator.onLine === false) {
               throw new Error("offline");
@@ -2093,18 +2103,28 @@
               credentials: "include",
               headers: options.body && !isFormData ? { "Content-Type": "application/json" } : undefined,
               body: options.body ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
-              signal: options.signal || controller.signal
+              signal: controller.signal
             });
             networkError = null;
             break;
           } catch (error) {
-            networkError = error;
-            if (attempt < maxAttempts) await new Promise((resolve) => setTimeout(resolve, 350));
+            networkError = controller.signal.aborted
+              ? Object.assign(new Error(timedOut ? "Request timed out." : "Request cancelled."), {
+                name: "AbortError",
+                isAbort: true,
+                isTimeout: timedOut
+              })
+              : error;
+            if (attempt < maxAttempts && !controller.signal.aborted) {
+              await new Promise((resolve) => setTimeout(resolve, 350));
+            }
           } finally {
             clearTimeout(timeout);
+            if (options.signal) options.signal.removeEventListener("abort", abortFromCaller);
           }
         }
         if (!response) {
+          if (networkError?.isAbort) throw networkError;
           const error = new Error(window.location.protocol === "file:"
             ? "Không thể kết nối ClassTrack API. Hãy mở ứng dụng qua máy chủ backend rồi tải lại trang."
             : navigator.onLine === false
@@ -2136,6 +2156,7 @@
           const error = new Error(message);
           error.status = response.status;
           error.response = result;
+          error.code = result?.code;
           error.isAuthError = response.status === 401;
           throw error;
         }
@@ -3787,6 +3808,8 @@
         const errorBox = document.getElementById("bulk-student-error");
         const status = document.getElementById("bulk-student-status");
         const submit = document.getElementById("bulk-student-submit");
+        const newBatchButton = document.getElementById("bulk-student-new-batch");
+        if (submit.disabled) return;
         const rows = document.getElementById("bulk-student-list").value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
         errorBox.hidden = true;
         status.textContent = "";
@@ -3800,29 +3823,64 @@
           errorBox.hidden = false;
           return;
         }
+        const batchStorageKey = `classtrack:bulk-students:${activeClass.id}`;
+        let batchId = sessionStorage.getItem(batchStorageKey);
+        if (!batchId) {
+          batchId = window.crypto.randomUUID();
+          sessionStorage.setItem(batchStorageKey, batchId);
+        }
+        newBatchButton.hidden = true;
         submit.disabled = true;
+        const submitLabel = submit.textContent;
+        submit.textContent = "Đang tạo...";
+        status.textContent = `Đang tạo tài khoản... (${rows.length} học sinh; thời gian chờ tối đa 120 giây).`;
         try {
           const result = await apiRequest(`/api/classes/${encodeURIComponent(activeClass.id)}/students/bulk`, {
             method: "POST",
-            body: { students: rows }
+            timeoutMs: 120000,
+            body: { batchId, students: rows }
           });
-          if (!Array.isArray(result?.credentials) || result.credentials.length !== rows.length) {
+          if (!Number.isInteger(result?.created) || !Array.isArray(result?.credentials) ||
+              result.credentials.length !== result.created || !Array.isArray(result.errors)) {
             throw new Error("Lỗi cấu hình API: phản hồi tạo tài khoản thiếu credentials hợp lệ.");
           }
           const generatedCount = rememberCreatedStudentCredentials(result.credentials);
-          event.target.reset();
-          status.textContent = `Đã tạo ${result.credentials.length} tài khoản mới; tệp hiện có ${generatedCount} tài khoản trong phiên này.`;
+          const skipped = Number(result.skipped) || 0;
+          const failed = Number(result.failed) || 0;
+          status.textContent = `Đã tạo ${result.created}, bỏ qua ${skipped}, lỗi ${failed}; tệp hiện có ${generatedCount} tài khoản trong phiên này.`;
+          if (failed || skipped) {
+            errorBox.textContent = result.errors.map((item) =>
+              `${item.row ? `Dòng ${item.row}: ` : ""}${item.message}`
+            ).join("\n");
+            errorBox.hidden = !result.errors.length;
+          } else {
+            event.target.reset();
+            sessionStorage.removeItem(batchStorageKey);
+          }
           try {
             await loadClassData();
           } catch (error) {
-            status.textContent = `Đã tạo ${result.credentials.length} tài khoản, nhưng chưa thể làm mới danh sách: ${error.message}`;
+            status.textContent += ` Chưa thể làm mới danh sách: ${error.message}`;
           }
         } catch (error) {
-          errorBox.textContent = error.message;
+          if ([400, 401, 403, 404].includes(error.status) || error.code === "STUDENT_ID_CONFLICT") {
+            sessionStorage.removeItem(batchStorageKey);
+          }
+          if (["DUPLICATE_BATCH", "BATCH_ID_REUSED"].includes(error.code)) newBatchButton.hidden = false;
+          errorBox.textContent = error.isAbort
+            ? "Yêu cầu mất kết nối nhưng máy chủ có thể vẫn đang xử lý. Hãy kiểm tra danh sách trước khi thử lại."
+            : error.message;
           errorBox.hidden = false;
         } finally {
           submit.disabled = false;
+          submit.textContent = submitLabel;
         }
+      });
+      document.getElementById("bulk-student-new-batch").addEventListener("click", () => {
+        if (!window.confirm("Chỉ tiếp tục nếu bạn đã kiểm tra danh sách và xác nhận lô trước không cần gửi lại. Bắt đầu lô mới?")) return;
+        sessionStorage.removeItem(`classtrack:bulk-students:${activeClass.id}`);
+        document.getElementById("bulk-student-new-batch").hidden = true;
+        document.getElementById("bulk-student-status").textContent = "Đã sẵn sàng cho lô mới.";
       });
       document.getElementById("download-student-accounts").addEventListener("click", downloadStudentAccounts);
       document.getElementById("student-credentials-reset").addEventListener("click", async () => {

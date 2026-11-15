@@ -162,13 +162,18 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.match(html, /rememberCreatedStudentCredentials\(report\.credentials\)/);
     assert.match(html, /rememberCreatedStudentCredentials\(result\.credentials\)/);
     assert.match(html, /result\.credentials\.length !== 1/);
-    assert.match(html, /result\.credentials\.length !== rows\.length/);
+    assert.match(html, /result\.credentials\.length !== result\.created/);
+    assert.match(html, /timeoutMs:\s*120000,\s*body:\s*\{\s*batchId,\s*students:\s*rows\s*\}/);
+    assert.match(html, /Yêu cầu mất kết nối nhưng máy chủ có thể vẫn đang xử lý\. Hãy kiểm tra danh sách trước khi thử lại\./);
+    assert.match(html, /if \(submit\.disabled\) return/);
+    assert.match(html, /Đang tạo tài khoản/);
+    assert.match(html, /id="bulk-student-new-batch"/);
     assert.match(html, /function downloadStudentAccounts\(\)/);
     assert.match(html, /Tải CSV tài khoản/);
     assert.match(html, /document\.body\.appendChild\(link\);\s*link\.click\(\);\s*link\.remove\(\)/);
     assert.match(html, /rows\.length > 50/);
     assert.match(html, /Mỗi lần chỉ có thể tạo tối đa 50 tài khoản học sinh/);
-    assert.match(html, /Đã tạo \$\{result\.credentials\.length\} tài khoản, nhưng chưa thể làm mới danh sách/);
+    assert.match(html, /status\.textContent \+= ` Chưa thể làm mới danh sách:/);
     assert.match(html, /Đã nhập tài khoản, nhưng chưa thể làm mới danh sách/);
     assert.match(html, /temporary_password/);
     assert.match(html, /Hãy tạo hoặc import tài khoản học sinh trước khi tải file\./);
@@ -220,6 +225,48 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
     assert.ok(createFormHandler.indexOf("rememberCreatedStudentCredentials(result.credentials)") <
       createFormHandler.indexOf("await loadClassData()"));
     assert.match(createFormHandler, /Đã tạo tài khoản, nhưng chưa thể làm mới danh sách/);
+  }
+});
+
+test("apiRequest identifies frontend timeouts instead of reporting an unresponsive server", async () => {
+  for (const file of ["../../public/index.html", "../public/index.html"]) {
+    const html = await readFile(new URL(file, import.meta.url), "utf8");
+    let fetchCount = 0;
+    const context = {
+      AbortController,
+      DOMException,
+      FormData,
+      queueMicrotask,
+      clearTimeout,
+      apiOrigin: "https://api.example.test",
+      navigator: { onLine: true },
+      window: {
+        location: { protocol: "https:" },
+        setTimeout(callback) {
+          queueMicrotask(callback);
+          return 1;
+        },
+        clearTimeout() {}
+      },
+      fetch(_url, options) {
+        fetchCount++;
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+      }
+    };
+    const request = vm.runInNewContext(
+      `${frontendFunction(html, "apiRequest")}\napiRequest("/bulk", { method: "POST", timeoutMs: 120000 })`,
+      context
+    );
+    await assert.rejects(request, (error) => {
+      assert.equal(error.isAbort, true, error.stack);
+      assert.equal(error.isTimeout, true);
+      assert.notEqual(error.isNetworkError, true);
+      assert.doesNotMatch(error.message, /không phản hồi/i);
+      return true;
+    });
+    assert.equal(fetchCount, 1);
   }
 });
 
@@ -363,11 +410,18 @@ test("bulk student creation returns downloadable credentials for every created a
           "Content-Type": "application/json",
           Cookie: adminCookie
         },
-        body: JSON.stringify({ students: ["Nguyễn Văn An", "Trần Thị Bình"] })
+        body: JSON.stringify({
+          batchId: "00000000-0000-4000-8000-000000000051",
+          students: ["Nguyễn Văn An", "Trần Thị Bình"]
+        })
       });
 
       assert.equal(response.status, 201);
       const body = await response.json();
+      assert.equal(body.created, 2);
+      assert.equal(body.skipped, 0);
+      assert.equal(body.failed, 0);
+      assert.deepEqual(body.errors, []);
       assert.deepEqual(body.credentials.map(({ username, full_name, student_code }) => ({
         username, full_name, student_code
       })), [
@@ -383,6 +437,228 @@ test("bulk student creation returns downloadable credentials for every created a
       assert.equal(JSON.stringify(auditStatements).includes(body.credentials[0].temporary_password), false);
       assert.equal(JSON.stringify(body).includes("password_hash"), false);
       assert.equal(JSON.stringify(body).includes("DATABASE_URL"), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("bulk student creation does not apply the same batch more than once", async () => {
+  const batchId = "00000000-0000-4000-8000-000000000052";
+  let storedRequestHash;
+  let userInsertCount = 0;
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return {
+          rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000020",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql, params = []) => {
+      if (sql.includes("INSERT INTO bulk_student_creation_batches")) {
+        if (storedRequestHash) return { rows: [], rowCount: 0 };
+        storedRequestHash = params[2];
+        return { rows: [{ batch_id: params[1] }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT request_hash FROM bulk_student_creation_batches")) {
+        return { rows: [{ request_hash: storedRequestHash }], rowCount: 1 };
+      }
+      if (sql.includes("nextval('student_account_code_seq')")) return { rows: [{ code: 52 }], rowCount: 1 };
+      if (sql.includes("SELECT 1 FROM users WHERE username")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO users")) {
+        userInsertCount++;
+        return { rows: [{ id: "00000000-0000-4000-8000-000000000052" }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO class_members")) {
+        return { rows: [{ id: "00000000-0000-4000-8000-000000000152" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const request = () => fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ batchId, students: ["One student"] })
+      });
+
+      const firstResponse = await request();
+      assert.equal(firstResponse.status, 201);
+      assert.equal((await firstResponse.json()).created, 1);
+      const duplicateResponse = await request();
+      assert.equal(duplicateResponse.status, 409);
+      const duplicateBody = await duplicateResponse.json();
+      assert.equal(duplicateBody.code, "DUPLICATE_BATCH");
+      assert.equal(duplicateBody.created, 0);
+      assert.deepEqual(duplicateBody.credentials, []);
+      const reusedResponse = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ batchId, students: ["A different student"] })
+      });
+      assert.equal(reusedResponse.status, 409);
+      assert.equal((await reusedResponse.json()).code, "BATCH_ID_REUSED");
+      assert.equal(userInsertCount, 1);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("bulk student creation rolls back and reports a username or student-code collision", async () => {
+  let rolledBack = false;
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return {
+          rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000020",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      if (sql.includes("INSERT INTO bulk_student_creation_batches")) {
+        return { rows: [{ batch_id: "00000000-0000-4000-8000-000000000054" }], rowCount: 1 };
+      }
+      if (sql.includes("nextval('student_account_code_seq')")) return { rows: [{ code: 54 }], rowCount: 1 };
+      if (sql.includes("SELECT 1 FROM users WHERE username")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO users")) {
+        const error = new Error("duplicate student identity");
+        error.code = "23505";
+        throw error;
+      }
+      if (sql === "ROLLBACK") rolledBack = true;
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({
+          batchId: "00000000-0000-4000-8000-000000000054",
+          students: ["Collision student"]
+        })
+      });
+      assert.equal(response.status, 409);
+      const body = await response.json();
+      assert.equal(body.code, "STUDENT_ID_CONFLICT");
+      assert.equal(body.created, 0);
+      assert.equal(body.failed, 1);
+      assert.equal(body.errors[0].code, "STUDENT_ID_CONFLICT");
+      assert.deepEqual(body.credentials, []);
+      assert.equal(rolledBack, true);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("bulk student creation commits after the client disconnects and deduplicates its retry", async () => {
+  const batchId = "00000000-0000-4000-8000-000000000053";
+  let storedRequestHash;
+  let userInsertCount = 0;
+  let resolveInsertStarted;
+  let resolveCommitted;
+  const insertStarted = new Promise((resolve) => { resolveInsertStarted = resolve; });
+  const committed = new Promise((resolve) => { resolveCommitted = resolve; });
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return {
+          rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000020",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql, params = []) => {
+      if (sql.includes("INSERT INTO bulk_student_creation_batches")) {
+        if (storedRequestHash) return { rows: [], rowCount: 0 };
+        storedRequestHash = params[2];
+        return { rows: [{ batch_id: params[1] }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT request_hash FROM bulk_student_creation_batches")) {
+        return { rows: [{ request_hash: storedRequestHash }], rowCount: 1 };
+      }
+      if (sql.includes("nextval('student_account_code_seq')")) return { rows: [{ code: 53 }], rowCount: 1 };
+      if (sql.includes("SELECT 1 FROM users WHERE username")) return { rows: [], rowCount: 0 };
+      if (sql.includes("INSERT INTO users")) {
+        userInsertCount++;
+        resolveInsertStarted();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return { rows: [{ id: "00000000-0000-4000-8000-000000000053" }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO class_members")) {
+        return { rows: [{ id: "00000000-0000-4000-8000-000000000153" }], rowCount: 1 };
+      }
+      if (sql === "COMMIT") resolveCommitted();
+      return { rows: [], rowCount: 1 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const controller = new AbortController();
+      const firstRequest = fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ batchId, students: ["Disconnected student"] }),
+        signal: controller.signal
+      });
+
+      await insertStarted;
+      controller.abort();
+      await assert.rejects(firstRequest, (error) => error.name === "AbortError");
+      await committed;
+      assert.equal(userInsertCount, 1);
+
+      const retryResponse = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ batchId, students: ["Disconnected student"] })
+      });
+      assert.equal(retryResponse.status, 409);
+      assert.equal((await retryResponse.json()).code, "DUPLICATE_BATCH");
+      assert.equal(userInsertCount, 1);
     });
   } finally {
     database.restore();

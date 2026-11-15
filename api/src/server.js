@@ -3,7 +3,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import * as XLSX from "@e965/xlsx";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import path from "node:path";
@@ -653,6 +653,10 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
   if (!Array.isArray(entries) || entries.length < 1 || entries.length > 50) {
     return response.status(400).json({ error: "Hãy nhập từ 1 đến 50 học sinh mỗi lần." });
   }
+  const batchId = request.body?.batchId;
+  if (typeof batchId !== "string" || !UUID_PATTERN.test(batchId)) {
+    return response.status(400).json({ error: "Mã lô tạo tài khoản không hợp lệ." });
+  }
   const studentsToCreate = [];
   for (const entry of entries) {
     const fullName = typeof entry === "string" ? entry.trim() : typeof entry?.fullName === "string" ? entry.fullName.trim() : "";
@@ -662,12 +666,56 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
     studentsToCreate.push({ fullName, password: `Ct-${randomBytes(9).toString("base64url")}` });
   }
 
+  const requestHash = createHash("sha256")
+    .update(JSON.stringify({ classId: request.params.classId, students: studentsToCreate.map(({ fullName }) => fullName) }))
+    .digest("hex");
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    for (const student of studentsToCreate) {
+    const batch = await client.query(
+      `INSERT INTO bulk_student_creation_batches (class_id, batch_id, request_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (class_id, batch_id) DO NOTHING
+       RETURNING batch_id`,
+      [request.params.classId, batchId, requestHash]
+    );
+    if (batch.rowCount !== 1) {
+      const existingBatch = await client.query(
+        "SELECT request_hash FROM bulk_student_creation_batches WHERE class_id = $1 AND batch_id = $2",
+        [request.params.classId, batchId]
+      );
+      await client.query("ROLLBACK");
+      const sameRequest = existingBatch.rows[0]?.request_hash === requestHash;
+      const code = sameRequest ? "DUPLICATE_BATCH" : "BATCH_ID_REUSED";
+      return response.status(409).json({
+        code,
+        created: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [{
+          row: null,
+          field: "batchId",
+          code,
+          message: "Lô này đã được xử lý hoặc đang xử lý. Hãy kiểm tra danh sách học sinh trước khi bắt đầu lô mới."
+        }],
+        credentials: [],
+        error: "Yêu cầu bulk đã được gửi trước đó; không có dữ liệu nào được tạo thêm."
+      });
+    }
+
+    console.info("Bulk student creation started", JSON.stringify({
+      requestId: batchId,
+      classId: request.params.classId,
+      requested: studentsToCreate.length
+    }));
+    const processingStartedAt = Date.now();
+    const accountTimings = [];
+    for (const [index, student] of studentsToCreate.entries()) {
       Object.assign(student, await nextStudentIdentity(client));
+      const hashStartedAt = Date.now();
       const passwordHash = await bcrypt.hash(student.password, 12);
+      const hashMs = Date.now() - hashStartedAt;
+      const insertStartedAt = Date.now();
       const user = await client.query(
         `INSERT INTO users (
            username, password_hash, full_name, student_number, is_active, is_teacher,
@@ -699,20 +747,66 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
         targetId: user.rows[0].id,
         details: { username: student.username }
       });
+      accountTimings.push({
+        row: index + 1,
+        hashMs,
+        persistenceMs: Date.now() - insertStartedAt
+      });
     }
     await client.query("COMMIT");
+    const credentials = studentsToCreate.map(({ studentNumber, username, fullName, password }) => ({
+      username,
+      full_name: fullName,
+      student_code: studentNumber,
+      temporary_password: password
+    }));
+    console.info("Bulk student creation completed", JSON.stringify({
+      requestId: batchId,
+      classId: request.params.classId,
+      created: credentials.length,
+      skipped: 0,
+      failed: 0,
+      batchId,
+      elapsedMs: Date.now() - processingStartedAt,
+      accounts: accountTimings
+    }));
     response.status(201).json({
-      credentials: studentsToCreate.map(({ studentNumber, username, fullName, password }) => ({
-        username,
-        full_name: fullName,
-        student_code: studentNumber,
-        temporary_password: password
-      }))
+      created: credentials.length,
+      skipped: 0,
+      failed: 0,
+      batchId,
+      errors: [],
+      credentials
     });
   } catch (error) {
     await client.query("ROLLBACK");
-    if (error.code === "23505") return response.status(409).json({ error: "Có mã học sinh hoặc tên đăng nhập đã tồn tại. Chưa tài khoản nào được tạo; hãy sửa danh sách rồi thử lại." });
-    if (error.code === "23503") return response.status(404).json({ error: "Không tìm thấy lớp hoặc thành viên liên quan. Chưa tài khoản nào được tạo." });
+    if (error.code === "23505") return response.status(409).json({
+      code: "STUDENT_ID_CONFLICT",
+      created: 0,
+      skipped: 0,
+      failed: studentsToCreate.length,
+      errors: [{
+        row: null,
+        field: "username",
+        code: "STUDENT_ID_CONFLICT",
+        message: "Tên đăng nhập hoặc mã học sinh đã tồn tại. Toàn bộ giao dịch đã được hoàn tác."
+      }],
+      credentials: [],
+      error: "Có mã học sinh hoặc tên đăng nhập đã được sử dụng. Chưa tài khoản nào được tạo."
+    });
+    if (error.code === "23503") return response.status(404).json({
+      created: 0,
+      skipped: 0,
+      failed: studentsToCreate.length,
+      errors: [{
+        row: null,
+        field: "class",
+        code: "RELATED_RECORD_MISSING",
+        message: "Không tìm thấy lớp hoặc thành viên liên quan. Toàn bộ giao dịch đã được hoàn tác."
+      }],
+      credentials: [],
+      error: "Không tìm thấy lớp hoặc thành viên liên quan. Chưa tài khoản nào được tạo."
+    });
     throw error;
   } finally {
     client.release();
