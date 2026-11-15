@@ -228,6 +228,39 @@ test("deployed frontend sends credentialed requests to the Render API", async ()
   }
 });
 
+test("bulk student form replaces invalid stored batch IDs with a fresh UUID", async () => {
+  for (const file of ["../../public/index.html", "../public/index.html"]) {
+    const html = await readFile(new URL(file, import.meta.url), "utf8");
+    const storage = new Map([["classtrack:bulk-students:class-1", "broken-batch-id"]]);
+    let uuidCalls = 0;
+    const context = {
+      sessionStorage: {
+        getItem(key) { return storage.get(key) || null; },
+        setItem(key, value) { storage.set(key, value); }
+      },
+      window: {
+        crypto: {
+          randomUUID() {
+            uuidCalls++;
+            return "550e8400-e29b-41d4-a716-446655440000";
+          }
+        }
+      }
+    };
+    const helperStart = html.indexOf("function getBulkStudentBatchId(");
+    const helperEnd = html.indexOf('document.getElementById("bulk-student-form").addEventListener("submit"', helperStart);
+    assert.ok(helperStart >= 0 && helperEnd > helperStart);
+    const getBatchId = vm.runInNewContext(
+      `${html.slice(helperStart, helperEnd)}\ngetBulkStudentBatchId`,
+      context
+    );
+    assert.equal(getBatchId("class-1"), "550e8400-e29b-41d4-a716-446655440000");
+    assert.equal(storage.get("classtrack:bulk-students:class-1"), "550e8400-e29b-41d4-a716-446655440000");
+    assert.equal(getBatchId("class-1"), "550e8400-e29b-41d4-a716-446655440000");
+    assert.equal(uuidCalls, 1);
+  }
+});
+
 test("apiRequest identifies frontend timeouts instead of reporting an unresponsive server", async () => {
   for (const file of ["../../public/index.html", "../public/index.html"]) {
     const html = await readFile(new URL(file, import.meta.url), "utf8");
@@ -437,6 +470,75 @@ test("bulk student creation returns downloadable credentials for every created a
       assert.equal(JSON.stringify(auditStatements).includes(body.credentials[0].temporary_password), false);
       assert.equal(JSON.stringify(body).includes("password_hash"), false);
       assert.equal(JSON.stringify(body).includes("DATABASE_URL"), false);
+    });
+  } finally {
+    database.restore();
+  }
+});
+
+test("bulk student creation returns 400 for missing, empty, or malformed batch IDs", async () => {
+  let transactionStarted = false;
+  const database = installDatabaseMock({
+    poolQuery: async (sql) => {
+      if (sql.includes("FROM auth_sessions")) {
+        return {
+          rows: [authenticatedUser({ isAdmin: false, isSuperAdmin: false, isTeacher: true })],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("FROM class_members")) {
+        return {
+          rows: [{
+            member_id: "00000000-0000-4000-8000-000000000020",
+            roles: ["ROLE_TEACHER"],
+            permissions: ["students:list"]
+          }],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    clientQuery: async (sql) => {
+      if (sql === "BEGIN") transactionStarted = true;
+      return { rows: [], rowCount: 0 };
+    }
+  });
+
+  try {
+    await withServer(async (origin) => {
+      const invalidBodies = [
+        {
+          body: { students: ["Student"] },
+          error: "Mã lô tạo tài khoản không hợp lệ.",
+          code: "INVALID_BATCH_ID"
+        },
+        {
+          body: { batchId: "", students: ["Student"] },
+          error: "Mã lô tạo tài khoản không hợp lệ.",
+          code: "INVALID_BATCH_ID"
+        },
+        {
+          body: { batchId: "not-a-uuid", students: ["Student"] },
+          error: "Mã lô tạo tài khoản không hợp lệ.",
+          code: "INVALID_BATCH_ID"
+        },
+        {
+          body: { batchId: "550e8400-e29b-41d4-a716-446655440000", students: [] },
+          error: "Hãy nhập ít nhất một học sinh."
+        }
+      ];
+      for (const testCase of invalidBodies) {
+        const response = await fetch(`${origin}/api/classes/00000000-0000-4000-8000-000000000010/students/bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Cookie: adminCookie },
+          body: JSON.stringify(testCase.body)
+        });
+        assert.equal(response.status, 400);
+        const body = await response.json();
+        assert.equal(body.error, testCase.error);
+        if (testCase.code) assert.equal(body.code, testCase.code);
+      }
+      assert.equal(transactionStarted, false);
     });
   } finally {
     database.restore();
@@ -704,7 +806,7 @@ test("bulk student creation rejects more than 50 names before opening a transact
         body: JSON.stringify({ students: Array.from({ length: 51 }, (_, index) => `Student ${index + 1}`) })
       });
       assert.equal(response.status, 400);
-      assert.match((await response.json()).error, /1 đến 50/);
+      assert.match((await response.json()).error, /tối đa 50/);
       assert.equal(transactionStarted, false);
     });
   } finally {

@@ -3803,6 +3803,17 @@
         }
       });
 
+      function getBulkStudentBatchId(classId) {
+        const storageKey = `classtrack:bulk-students:${classId}`;
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const storedBatchId = sessionStorage.getItem(storageKey);
+        if (typeof storedBatchId === "string" && uuidPattern.test(storedBatchId)) return storedBatchId;
+        const batchId = window.crypto.randomUUID();
+        if (!uuidPattern.test(batchId)) throw new Error("Trình duyệt không tạo được mã lô UUID hợp lệ.");
+        sessionStorage.setItem(storageKey, batchId);
+        return batchId;
+      }
+
       document.getElementById("bulk-student-form").addEventListener("submit", async (event) => {
         event.preventDefault();
         const errorBox = document.getElementById("bulk-student-error");
@@ -3824,10 +3835,13 @@
           return;
         }
         const batchStorageKey = `classtrack:bulk-students:${activeClass.id}`;
-        let batchId = sessionStorage.getItem(batchStorageKey);
-        if (!batchId) {
-          batchId = window.crypto.randomUUID();
-          sessionStorage.setItem(batchStorageKey, batchId);
+        let batchId;
+        try {
+          batchId = getBulkStudentBatchId(activeClass.id);
+        } catch (error) {
+          errorBox.textContent = error.message;
+          errorBox.hidden = false;
+          return;
         }
         newBatchButton.hidden = true;
         submit.disabled = true;

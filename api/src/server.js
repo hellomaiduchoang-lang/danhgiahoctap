@@ -650,12 +650,21 @@ app.post("/api/classes/:classId/students/bulk", requireAuthentication, requireSa
     return response.status(403).json({ error: "Chỉ giáo viên của lớp mới được tạo tài khoản học sinh." });
   }
   const entries = request.body?.students;
-  if (!Array.isArray(entries) || entries.length < 1 || entries.length > 50) {
-    return response.status(400).json({ error: "Hãy nhập từ 1 đến 50 học sinh mỗi lần." });
+  if (!Array.isArray(entries)) {
+    return response.status(400).json({ error: "Danh sách học sinh không hợp lệ." });
+  }
+  if (entries.length === 0) {
+    return response.status(400).json({ error: "Hãy nhập ít nhất một học sinh." });
+  }
+  if (entries.length > 50) {
+    return response.status(400).json({ error: "Mỗi lần chỉ có thể tạo tối đa 50 tài khoản học sinh." });
   }
   const batchId = request.body?.batchId;
   if (typeof batchId !== "string" || !UUID_PATTERN.test(batchId)) {
-    return response.status(400).json({ error: "Mã lô tạo tài khoản không hợp lệ." });
+    return response.status(400).json({
+      error: "Mã lô tạo tài khoản không hợp lệ.",
+      code: "INVALID_BATCH_ID"
+    });
   }
   const studentsToCreate = [];
   for (const entry of entries) {
